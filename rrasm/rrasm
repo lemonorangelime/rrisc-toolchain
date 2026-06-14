@@ -164,6 +164,9 @@ def print_error(warntype, text, ignoreflag=False):
 # `mov` instruction virtual overload resolver, resolve to st, ld, or ldi depending on operand types
 def mov_virtual_instruction(a, b):
 	b = int_coerce(b);
+	if (a["type"] == "reg" and b["type"] == "reg"):
+		return {"type": "instruction", "name": "ori", "operands": [a, b, decode_operand("0")]};
+
 	if (a["type"] == "mem" and b["type"] == "reg"):
 		return {"type": "instruction", "name": "st"};
 
