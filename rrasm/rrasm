@@ -68,8 +68,8 @@ encodings = {
 	"jal":	{"opcode": 0x15, "args": 2, "encoding": "di"},
 	"jrel":	{"opcode": 0x16, "args": 1, "encoding": "r"},
 	"ldi":	{"opcode": 0x17, "args": 2, "encoding": "di"},
-	"ldc":	{"opcode": 0x18, "args": 2, "encoding": "dc"},
-	"stc":	{"opcode": 0x19, "args": 2, "encoding": "Ca"},
+	"bneq":	{"opcode": 0x18, "args": 3, "encoding": "dai"},
+	"bgt":	{"opcode": 0x19, "args": 3, "encoding": "dai"},
 	"lds":	{"opcode": 0x1a, "args": 1, "encoding": "d"},
 	"sts":	{"opcode": 0x1b, "args": 1, "encoding": "a"},
 	"push":	{"opcode": 0x1c, "args": 1, "encoding": "a"},
@@ -102,8 +102,8 @@ registers = {
 	"r15": {"type": "reg", "value": 15},
 
 	# controls
-	"iva": {"type": "ctrl", "value": 16},
-	"r16": {"type": "ctrl", "value": 16},
+	#"iva": {"type": "ctrl", "value": 16},
+	#"r16": {"type": "ctrl", "value": 16},
 
 	# virtual
 	"sp": {"type": "vreg", "value": VREG_SP},
