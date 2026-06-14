@@ -88,9 +88,13 @@ encodings = {
 	"sts":	{"opcode": 0x1b, "args": 1, "encoding": "a"},
 	"push":	{"opcode": 0x1c, "args": 1, "encoding": "a"},
 	"pop":	{"opcode": 0x1d, "args": 1, "encoding": "d"},
-	"iret":	{"opcode": 0x1e, "args": 0, "encoding": ""},
-	"ldio":	{"opcode": 0x1f, "args": 2, "encoding": "da"},
-	"stio":	{"opcode": 0x20, "args": 2, "encoding": "da"},
+	"call":	{"opcode": 0x1e, "args": 1, "encoding": "r"},
+	"ret":	{"opcode": 0x1f, "args": 0, "encoding": ""},
+	# ...
+	"iret":	{"opcode": 0x22, "args": 0, "encoding": ""},
+	"ldio":	{"opcode": 0x23, "args": 2, "encoding": "da"},
+	"stio":	{"opcode": 0x24, "args": 2, "encoding": "da"},
+	"jreg": {"opcode": 0x25, "args": 1, "encoding": "d"},
 	"halt":	{"opcode": 0xff, "args": 0, "encoding": ""},
 };
 
@@ -126,7 +130,6 @@ registers = {
 # aliases
 aliases = {
 	"hlt": "halt",
-	"call": "jal",
 };
 
 symbols = {}; # symbols - filled at runtime
@@ -206,6 +209,9 @@ def mov_virtual_instruction(a, b):
 
 # `jmp` instruction virtual resolver, resolve to jrel or jmp depending on pie settings
 def jmp_virtual_instruction(a):
+	if (a["type"] == "reg"):
+		return {"type": "instruction", "name": "jreg"};
+
 	if (pie):
 		return {"type": "instruction", "name": "jrel"};
 
