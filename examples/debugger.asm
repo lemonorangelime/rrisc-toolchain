@@ -61,6 +61,16 @@ skip:
 	jmp done
 .jalfine:
 
+mov r14, STP_UNEXPECTED_SP
+xor r0, r0
+xor r1, r1
+mov r0, 0x080
+mov sp, r0
+mov r1, sp
+beq r0, r1, .stp_fine
+jmp done
+.stp_fine:
+
 mov r14, PUSH_UNEXPECTED_SP
 xor r0, r0
 xor r1, r1
@@ -142,7 +152,10 @@ or r14, 0xffff
 done:	; ON END:
 	; r0  = 0xff00 (Stall Signal)
 	; r14 = Error code
+	xor r1, r1
 	mov r0, 0xff00 ; signal end with 0xff00 in r0 and stall
+	mov r1, stall
+	mov iva, r1
 stall:
 	jmp stall
 
@@ -159,8 +172,8 @@ exit_int:
 	xor r1, r1
 	and r1, r13, 0xff
 	beq r1, r0, was_int_expected
-	or r14, SPURIOUS_INTERRUPT
-	jmp exit_int.end
+	mov r14, SPURIOUS_INTERRUPT
+	jmp done
 was_int_expected:
 	xor r0, r0
 	xor r1, r1
@@ -168,7 +181,8 @@ was_int_expected:
 	and r1, 0xff
 	mov r0, 0xff
 	beq r1, r0, exit_int.end
-	or r14, SPURIOUS_INTERRUPT
+	mov r14, SPURIOUS_INTERRUPT
+	jmp done
 exit_int.end:
 	pop r1
 	pop r0
