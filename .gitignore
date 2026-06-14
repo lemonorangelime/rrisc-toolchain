@@ -1,0 +1,9 @@
+tools/rrvm/rrvm
+tools/rrinterp/
+*.bin
+*.mi
+*.hex
+*.elf
+*.vmd
+*.roadrun
+*.gtkw
