@@ -92,7 +92,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			}
 			break;
 		case OP_BLT:
-			if (RREGISTER(instruction.dest) < RREGISTER(instruction.reg_a)) { // was endian problem...
+			if (RREGISTER(instruction.dest) < RREGISTER(instruction.reg_a)) { // endian problem?
 				pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
 			}
 			break;
@@ -101,8 +101,18 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 		case OP_JREL: pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm)); break;
 
 		case OP_LDI: REGISTER(instruction.dest) = htonl(ntohs(instruction.imm)); break;
-		case OP_LDC: REGISTER(instruction.dest) = CTRLREGISTER(instruction.reg_a); break;
-		case OP_STC: CTRLREGISTER(instruction.dest) = REGISTER(instruction.reg_a); break;
+
+		case OP_BNEQ:
+			if (RREGISTER(instruction.dest) != RREGISTER(instruction.reg_a)) {
+				pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
+			}
+			break;
+		case OP_BGT:
+			if (RREGISTER(instruction.dest) > RREGISTER(instruction.reg_a)) {
+				pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
+			}
+			break;
+
 		case OP_LDS: REGISTER(instruction.dest) = htonl(rrisc_cpu->registers.sp); break;
 		case OP_STS: sp_next = RREGISTER(instruction.reg_a); break;
 
@@ -114,6 +124,21 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			BUS_READ(rrisc_cpu->mem_bus, REGISTER(instruction.dest), rrisc_cpu->registers.sp, 0);
 			sp_next = rrisc_cpu->registers.sp + 1;
 			break;
+
+		case OP_CALL: {
+			uint32_t big_endian_pc = htonl(pc_next);
+			sp_next = rrisc_cpu->registers.sp - 1;
+			BUS_WRITE(rrisc_cpu->mem_bus, sp_next, big_endian_pc, 0);
+			pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
+			break;
+		}
+
+		case OP_RET:
+			BUS_READ(rrisc_cpu->mem_bus, pc_next, rrisc_cpu->registers.sp, 0);
+			pc_next = ntohl(pc_next);
+			sp_next = rrisc_cpu->registers.sp + 1;
+			break;
+
 		case OP_IRET:
 			BUS_READ(rrisc_cpu->mem_bus, pc_next, rrisc_cpu->registers.sp, 0);
 			sp_next = rrisc_cpu->registers.sp + 2;
@@ -121,6 +146,8 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 
 		case OP_LDIO: BUS_READ(rrisc_cpu->io_bus, REGISTER(instruction.dest), RREGISTER(instruction.reg_a), 0); break;
 		case OP_STIO: BUS_WRITE(rrisc_cpu->io_bus, RREGISTER(instruction.dest), REGISTER(instruction.reg_a), 0); break;
+
+		case OP_JREG: pc_next = RREGISTER(instruction.dest);
 
 		default:
 			printf("unimplemented or invalid opcode\n");

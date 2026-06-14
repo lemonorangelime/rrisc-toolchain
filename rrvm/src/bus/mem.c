@@ -8,7 +8,7 @@ void mem_bus_read_handler(bus_t * bus, uint32_t address, void * bufferp, size_t 
 	uint8_t * buffer = bufferp;
 	for (int b = 0; b < bytes; b++) {
 		uint8_t data = 0;
-		if ((address + b) < mem_bus->size) {
+		if ((address + b) <= mem_bus->size) {
 			data = ram[address + b];
 		}
 		buffer[b] = ram[address + b];

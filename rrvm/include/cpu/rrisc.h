@@ -5,7 +5,7 @@
 
 typedef struct {
 	uint32_t regs[16];
-	uint32_t ctrl[16];
+	//uint32_t ctrl[16];
 	uint32_t tsc;
 	uint32_t pc;
 	uint32_t sp;
@@ -61,14 +61,17 @@ enum {
 	OP_JAL  = 0x15,
 	OP_JREL = 0x16,
 	OP_LDI  = 0x17,
-	OP_LDC  = 0x18,
-	OP_STC  = 0x19,
-	OP_LDS  = 0x1a,
-	OP_STS  = 0x1b,
-	OP_PUSH = 0x1c,
-	OP_POP  = 0x1d,
-	OP_IRET = 0x1e,
-	OP_LDIO = 0x1f,
-	OP_STIO = 0x20,
+	OP_BNEQ = 0x18,
+	OP_BGT  = 0x19,
+	OP_LDS  = 0x1a, // load stack pointer
+	OP_STS  = 0x1b, // store stack pointer
+	OP_PUSH = 0x1c, // push onto stack
+	OP_POP  = 0x1d, // pop from stack
+	OP_CALL = 0x1e,
+	OP_RET  = 0x1f,
+	OP_IRET = 0x22, // retrun from interrupt
+	OP_LDIO = 0x23, // load from I/O bus
+	OP_STIO = 0x24, // store to I/O bus
+	OP_JREG = 0x25,
 	OP_HALT = 0xFF
 };
