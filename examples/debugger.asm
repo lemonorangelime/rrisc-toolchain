@@ -1,15 +1,18 @@
 ; test various I/O devices and instructions to verify correctness and locate hardware bugs
 
-PIT_NEVER_INTERRUPTED equ 0b0000000000000001 ; programed pit to interrupt, never did (in reasonable amount of timea)
-JAL_UNEXPECTED_PC equ 0b0000000000000010 ; jal put unexpected value into register
-JAL_BRANCH_NEVER_TAKEN equ 0b0000000000000100 ; jal did not jump
-PUSH_UNEXPECTED_SP equ 0b0000000000001000 ; unexpected stack pointer after push
-POP_UNEXPECTED_SP equ 0b0000000000010000 ; unexpected stack pointer after pop
-STACK_CORRUPTED equ 0b0000000000100000 ; value on stack did not match value pushed
-BEQ_TOOK_WRONG_BRANCH equ 0b0000000001000000 ; beq took the wrong branch
-BLT_TOOK_WRONG_BRANCH equ 0b0000000010000000 ; blt took the wrong branch
-INCORRECT_ENDIANNESS equ 0b0000000100000000 ; nebulous endianness problem
-SPURIOUS_INTERRUPT equ 0b1000000000000000 ; received interrupt when none was expected
+PIT_NEVER_INTERRUPTED equ 0 ; programed pit to interrupt, never did (in reasonable amount of time)
+JAL_UNEXPECTED_PC equ 1 ; jal put unexpected value into register
+JAL_BRANCH_NEVER_TAKEN equ 2 ; jal did not jump
+STP_UNEXPECTED_SP equ 3 ; unexpected stack pointer after stp
+PUSH_UNEXPECTED_SP equ 4 ; unexpected stack pointer after push
+POP_UNEXPECTED_SP equ 5 ; unexpected stack pointer after pop
+STACK_CORRUPTED equ 6 ; value on stack did not match value pushed
+BEQ_TOOK_WRONG_BRANCH equ 7 ; beq took the wrong branch
+BLT_TOOK_WRONG_BRANCH equ 8 ; blt took the wrong branch
+INCORRECT_ENDIANNESS equ 9 ; nebulous endianness problem
+SPURIOUS_INTERRUPT equ 10 ; received interrupt when none was expected or incorrect interrupt source
+
+OKAY equ 0xffffffff ; everything okay
 
 PIT_CLOCK_DELAY equ 24 ; how many cycles to program pit for
 PIT_POLL_CYCLES equ 4 ; how long to wait for the pit to finally interrupt
@@ -33,6 +36,7 @@ mov r1, 0x0001
 out r0, r1
 mov r13, 0xff00
 
+mov r14, PIT_NEVER_INTERRUPTED
 mov r0, PIT_POLL_CYCLES
 xor r1, r1
 loop:
@@ -41,20 +45,23 @@ loop:
 xor r0, r0
 mov r0, 0xffff
 beq r0, r15, .continue ; i want bne r0, 15, pit_error because this should be negated, cant, must do this
-or r14, PIT_NEVER_INTERRUPTED
+jmp done
 .continue:
 
+mov r14, JAL_BRANCH_NEVER_TAKEN
 xor r0, r0
 xor r1, r1
 call r0, skip
 jal_expected:
-	or r14, JAL_BRANCH_NEVER_TAKEN
+	jmp done
 skip:
+	mov r14, JAL_UNEXPECTED_PC
 	mov r1, jal_expected
 	beq r0, r1, .jalfine
-	or r14, JAL_UNEXPECTED_PC
+	jmp done
 .jalfine:
 
+mov r14, PUSH_UNEXPECTED_SP
 xor r0, r0
 xor r1, r1
 xor r2, r2
@@ -67,9 +74,10 @@ push r2
 mov r1, sp
 add r1, 1
 beq r0, r1, .pushfine
-or r14, PUSH_UNEXPECTED_SP
+jmp done
 .pushfine:
 
+mov r14, STACK_CORRUPTED
 xor r0, r0
 xor r1, r1
 mov r0, 0x1234
@@ -77,39 +85,37 @@ shl r0, 16
 or r0, 0x5678
 pop r1
 beq r0, r1, .popcontinue
-or r14, STACK_CORRUPTED
+jmp done
 .popcontinue:
+mov r14, POP_UNEXPECTED_SP
 xor r0, r0
 mov r0, 0x80
 mov r1, sp
 beq r0, r1, .popfine
-or r14, POP_UNEXPECTED_SP
+jmp done
 .popfine:
 
 xor r0, r1
 xor r1, r1
 mov r0, 0x01
 mov r1, 0x02
+mov r14, BLT_TOOK_WRONG_BRANCH
 blt r1, r0, .bltcontinue
-or r14, BLT_TOOK_WRONG_BRANCH
+jmp done
 .bltcontinue:
-blt r0, r1, .bltwrong
-jmp .bltfine
-.bltwrong:
-or r14, BLT_TOOK_WRONG_BRANCH
-.bltfine:
+mov r14, BLT_TOOK_WRONG_BRANCH
+blt r0, r1, done
 
-beq r0, r1, .beq_wrong
-jmp .beq_continue
-.beq_wrong:
-or r14, BEQ_TOOK_WRONG_BRANCH
-.beq_continue:
+mov r14, BEQ_TOOK_WRONG_BRANCH
+beq r0, r1, done
 mov r0, 0x1234
 mov r1, 0x1234
+mov r14, BEQ_TOOK_WRONG_BRANCH
 beq r0, r1, .beqfine
-or r14, BEQ_TOOK_WRONG_BRANCH
+jmp done
 .beqfine:
 
+mov r14, INCORRECT_ENDIANNESS
 xor r0, r0
 xor r1, r1
 xor r2, r2
@@ -118,19 +124,24 @@ shl r0, 8
 or r0, 0x34
 mov r1, 0x1234
 beq r0, r1, .endcheckcontinue
-or r14, INCORRECT_ENDIANNESS
+jmp done
 .endcheckcontinue:
 mov [r2 + scratch], r0 ; this seemingly strange check is intended to check if endianness changes during memory read/write (mostly for debugging vm)
 mov r0, [r2 + scratch]
 beq r0, r1, .endiannessfine
-or r14, INCORRECT_ENDIANNESS
+jmp done
 .endiannessfine:
 
 ; add new tests here hew new I/O devices
+; MAKE SURE TO SET r14
 
+xor r14, r14
+mov r14, 0xffff
+shl r14, 16
+or r14, 0xffff
 done:	; ON END:
 	; r0  = 0xff00 (Stall Signal)
-	; r14 = Error Bitmap
+	; r14 = Error code
 	mov r0, 0xff00 ; signal end with 0xff00 in r0 and stall
 stall:
 	jmp stall

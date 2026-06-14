@@ -1,10 +1,18 @@
 ; test various I/O devices and instructions to verify correctness and locate hardware bugs
 
-JAL_UNEXPECTED_PC equ 0b0000000000000010 ; jal put unexpected value into register
-JAL_BRANCH_NEVER_TAKEN equ 0b0000000000000100 ; jal did not jump
-BEQ_TOOK_WRONG_BRANCH equ 0b0000000001000000 ; beq took the wrong branch
-BLT_TOOK_WRONG_BRANCH equ 0b0000000010000000 ; blt took the wrong branch
-INCORRECT_ENDIANNESS equ 0b0000000100000000 ; nebulous endianness problem
+PIT_NEVER_INTERRUPTED equ 0 ; programed pit to interrupt, never did (in reasonable amount of time)
+JAL_UNEXPECTED_PC equ 1 ; jal put unexpected value into register
+JAL_BRANCH_NEVER_TAKEN equ 2 ; jal did not jump
+STP_UNEXPECTED_SP equ 3 ; unexpected stack pointer after stp
+PUSH_UNEXPECTED_SP equ 4 ; unexpected stack pointer after push
+POP_UNEXPECTED_SP equ 5 ; unexpected stack pointer after pop
+STACK_CORRUPTED equ 6 ; value on stack did not match value pushed
+BEQ_TOOK_WRONG_BRANCH equ 7 ; beq took the wrong branch
+BLT_TOOK_WRONG_BRANCH equ 8 ; blt took the wrong branch
+INCORRECT_ENDIANNESS equ 9 ; nebulous endianness problem
+SPURIOUS_INTERRUPT equ 10 ; received interrupt when none was expected or incorrect interrupt source
+
+OKAY equ 0xffffffff ; everything okay
 
 xor r0, r0 ; ensure cleanlyness of registers we will use
 xor r1, r1
@@ -13,37 +21,34 @@ xor r15, r15
 
 xor r0, r0
 xor r1, r1
+mov r14, JAL_BRANCH_NEVER_TAKEN ; we are about to check
 call r0, skip
 jal_expected:
-	or r14, JAL_BRANCH_NEVER_TAKEN
+	jmp done
 skip:
+	mov r14, JAL_UNEXPECTED_PC ; we are about to check
 	mov r1, jal_expected
 	beq r0, r1, .jalfine
-	or r14, JAL_UNEXPECTED_PC
+	jmp done
 .jalfine:
 
 xor r0, r1
 xor r1, r1
 mov r0, 0x01
 mov r1, 0x02
+mov r14, BLT_TOOK_WRONG_BRANCH ; we are about to check
 blt r1, r0, .bltcontinue
-or r14, BLT_TOOK_WRONG_BRANCH
+jmp done
 .bltcontinue:
-blt r0, r1, .bltwrong
-jmp .bltfine
-.bltwrong:
-or r14, BLT_TOOK_WRONG_BRANCH
-.bltfine:
-
-beq r0, r1, .beq_wrong
-jmp .beq_continue
-.beq_wrong:
-or r14, BEQ_TOOK_WRONG_BRANCH
-.beq_continue:
+mov r14, BLT_TOOK_WRONG_BRANCH ; we are about to check
+blt r0, r1, done
+mov r14, BEQ_TOOK_WRONG_BRANCH ; we are about to check
+beq r0, r1, done
+mov r14, BEQ_TOOK_WRONG_BRANCH ; we are about to check
 mov r0, 0x1234
 mov r1, 0x1234
 beq r0, r1, .beqfine
-or r14, BEQ_TOOK_WRONG_BRANCH
+jmp done
 .beqfine:
 
 xor r0, r0
@@ -53,22 +58,30 @@ or r0, 0x12
 shl r0, 8
 or r0, 0x34
 mov r1, 0x1234
+mov r14, INCORRECT_ENDIANNESS ; we are about to check
 beq r0, r1, .endcheckcontinue
-or r14, INCORRECT_ENDIANNESS
+jmp done
 .endcheckcontinue:
 mov [r2 + scratch], r0 ; this seemingly strange check is intended to check if endianness changes during memory read/write (mostly for debugging vm)
 mov r0, [r2 + scratch]
 beq r0, r1, .endiannessfine
-or r14, INCORRECT_ENDIANNESS
+jmp done
 .endiannessfine:
 
 ; add new tests here hew new I/O devices
+; MAKE SURE TO SET r14
 
-done:	; ON END:
-	; r0  = 0xff00 (Stall Signal)
-	; r14 = Error Bitmap
+xor r14, r14
+mov r14, 0xffff
+shl r14, 16
+or r14, 0xffff
+done:	; ON END
+	;
+	; r0 = 0xff00 (Stall Signal)
+	; r14 = Error Code
 	mov r0, 0xff00 ; signal end with 0xff00 in r0 and stall
 stall:
 	jmp stall
+
 
 scratch:
