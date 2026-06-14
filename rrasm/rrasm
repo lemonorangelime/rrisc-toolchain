@@ -44,6 +44,20 @@ compression_level = 1; # compression level (-l)
 
 
 # instruction encoding table
+
+## encoding options
+# Destination     - d = Rd
+# Register A      - a = Ra
+# Register B      - b = Rb
+# Immediate       - i = #imm
+# Memory (A)      - m = mem[Ra + #imm]
+# Memory (D)      - M = mem[Rd + #imm]
+# Relative (#imm) - r = signed(#imm) - pc
+#
+## Obselete encodings
+#
+# Control (A)     - c = ctrl[Ra]
+# Control (D)     - C = ctrl[Rd]
 encodings = {
 	"nop":	{"opcode": 0x00, "args": 0, "encoding": ""},
 	"add":	{"opcode": 0x02, "args": 3, "encoding": "dab"},
