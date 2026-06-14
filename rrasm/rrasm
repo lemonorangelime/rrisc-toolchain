@@ -16,6 +16,7 @@ ADDRESS_SHIFT = len(bin(WORD_SIZE - 1)[2:]); # change WORD_SIZE instead
 FPGASYNTH_WORD_SIZE = 4;
 MI_WORD_SIZE = 4;
 ELF_MACHINE_TYPE = 0x23; # our (unrecognised, non-standard) machine type
+ELF_OBJ_TYPE = 0x00001; # our very recognised and stardard object type (unlinked relocatable - like nasm)
 ELF_OSABI_TYPE = 0x80; # out (unrecognised, non-standard) OS/ABI type
 ELF_OSABI_VERSION = 0x00; # this is osabi specific anyway
 ELF_COMMENT = b"rrisc assembler (rrasm v1.1)"; # elf comment
@@ -484,8 +485,8 @@ def elf_format_transformer(bin):
 		};
 
 		reltype = absreltypes[sym["type"]];
-		rel += struct.pack(">I", sym["address"]);
-		rel += b"\x00" + struct.pack(">H", dynsym_index) + bytes([reltype]);
+		rel += struct.pack(">I", vmembase + sym["address"]);
+		rel += struct.pack(">I", (dynsym_index << 8) | reltype);
 
 		dynsym_index += 1;
 		exported_symbols += 1;
@@ -567,7 +568,7 @@ def elf_format_transformer(bin):
 			section_header += b"\x00\x00\x00\x04";
 			section_header += b"\x00\x00\x00\x01";
 			section_header += b"\x00\x00\x00\x00";
-			section_header += b"\x00\x00\x00\x0c";
+			section_header += b"\x00\x00\x00\x08";
 
 	program_header = b"\x00\x00\x00\x01"; # type
 	program_header += struct.pack(">I", elf_section_data_offset + len(strtab) + len(dynstr) + len(dynsym) + len(comment) + len(rel)); # segment file offset
@@ -591,7 +592,7 @@ def elf_format_transformer(bin):
 	header += bytes([0x01, 0x02, 0x01, ELF_OSABI_TYPE]); # class | data | version | ident
 	header += bytes([ELF_OSABI_VERSION, 0x00, 0x00, 0x00]); # abiver | pad
 	header += b"\x00\x00\x00\x00"; # pad
-	header += b"\x00\x01" + struct.pack(">H", ELF_MACHINE_TYPE); # type | machine
+	header += struct.pack(">H", ELF_OBJ_TYPE) + struct.pack(">H", ELF_MACHINE_TYPE); # type | machine
 	header += b"\x00\x00\x00\x01"; # version
 	header += struct.pack(">I", search_for_entrypoint()); # entry
 	header += struct.pack(">I", elf_header_size); # program header file offset
@@ -689,11 +690,11 @@ def decode_str_operand(operand):
 	try:
 		lexer_output = shlex.split(operand); # this is incorrect use of shlex
 		if (len(lexer_output) != 1):
-			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			print_error("error", "decode_str_operand(): Error parsing string (%s)" % operand);
 			return {"type": "error", "value": ERR_DECODE_FAILED};
 		return {"type": "str", "value": lexer_output[0]};
 	except Exception as e:
-		print_error("error", "Error parsing ASCII integer (%s)" % operand);
+		print_error("error", "decode_str_operand(): Error parsing string (%s)" % operand);
 		return {"type": "error", "value": ERR_DECODE_FAILED};
 
 # decode chr operand from string
@@ -701,18 +702,18 @@ def decode_chr_operand(operand):
 	try:
 		lexer_output = shlex.split(operand); # this is incorrect use of shlex
 		if (len(lexer_output) != 1):
-			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			print_error("error", "decode_chr_operand(): Error parsing ASCII integer (%s)" % operand);
 			return {"type": "error", "value": ERR_DECODE_FAILED};
 		encoded = bytes(lexer_output[0], "utf-8");
 		if (len(encoded) != 1):
-			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			print_error("error", "decode_chr_operand(): Error parsing ASCII integer (%s)" % operand);
 			return {"type": "error", "value": ERR_DECODE_FAILED};
 		return encoded[0];
 	except Exception as e:
-		print_error("error", "Error parsing ASCII integer (%s)" % operand);
+		print_error("error", "decode_chr_operand(): Error parsing ASCII integer (%s)" % operand);
 		return {"type": "error", "value": ERR_DECODE_FAILED};
 
-# decode int operand from string - UNIMPLEMENTED
+# decode int operand from string
 def decode_int_helper(num):
 	num = num.strip();
 	try:
@@ -732,7 +733,7 @@ def decode_int_helper(num):
 	except Exception as e:
 		return False;
 
-# decode mem operand from string - UNIMPLEMENTED
+# decode mem operand from string
 def decode_mem_operand(operand):
 	decoded = {"type": "mem", "value": 0, "imm": 0};
 
@@ -750,7 +751,7 @@ def decode_mem_operand(operand):
 			try:
 				decodedint = int_forcecast(decodedint);
 			except Exception as e:
-				print_error("error", "Could not force cast immediate int in memory ref %s" % operand);
+				print_error("error", "decode_mem_operand(): Could not force cast immediate int in memory ref %s" % operand);
 				return {"type": "error", "value": ERR_DECODE_FAILED};
 			decoded["imm"] = decodedint;
 			regname = reference[:adden_index];
@@ -764,7 +765,7 @@ def decode_mem_operand(operand):
 	decoded["value"] = registers[regname]["value"];
 	return decoded;
 
-# decode int operand from string - UNIMPLEMENTED
+# decode int operand from string
 def decode_int_operand(operand):
 	try:
 		decoded = decode_int_helper(operand);
@@ -840,7 +841,7 @@ def decode_symbol(symbol):
 	name = words[0];
 	value = decode_int_helper(words[2]);
 	if (name in symbols):
-		print_error("error", "Redefined symbol %s" % name);
+		print_error("error", "decode_symbol(): Redefined symbol %s" % name);
 		return {"type": "error", "value": ERR_SYM_REDEFINED};
 
 	symbols[name] = value;
@@ -989,7 +990,7 @@ def serialise_instruction(instruction, offset):
 				value = operand["value"] - (vmembase + offset);
 
 			if (int_bound_check(value, 15, 1)):
-				print_error("error", "could not encode relative reference, %s outside int16_t limits" % value);
+				print_error("error", "serialise_instruction(): Could not encode relative reference, %s outside signed 16-bit int limits" % value);
 				return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
 			packed = struct.pack(">h", value);
@@ -1019,7 +1020,7 @@ def assemble_instruction(instruction, offset):
 	if (decoded["type"] == "relsym"):
 		symname = decoded["value"];
 		if (symname in symbols):
-			print_error("error", "Redefined symbol %s" % symname);
+			print_error("error", "assemble_instruction(): Redefined symbol %s" % symname);
 			return {"type": "error", "value": ERR_SYM_REDEFINED};
 
 		if (WORD_ADDRESSED):
@@ -1083,9 +1084,9 @@ def process_file(source):
 		stat = fixed_sym_decode_prepass(line);
 		if (stat["type"] != "null"):
 			if (stat["type"] == "error"):
-				print_error("error", "%s on line %d" % (err2name(stat["value"]), linenum));
+				print_error("error", "process_file(): %s on line %d" % (err2name(stat["value"]), linenum));
 			else:
-				print_error("error", "unknown [ %s ] return value on line %d" % (""+stat, linenum));
+				print_error("error", "process_file(): Got unknown return value [ %s ] on line %d" % (""+stat, linenum));
 			return;
 		linenum += 1;
 
@@ -1100,9 +1101,9 @@ def process_file(source):
 		instruction = assemble_instruction(line, offset);
 		if (type(instruction) != bytes):
 			if (instruction["type"] == "error"):
-				print_error("error", "%s on line %d" % (err2name(instruction["value"]), linenum));
+				print_error("error", "process_file(): %s on line %d" % (err2name(instruction["value"]), linenum));
 			else:
-				print_error("error", "unknown [ %s ] return value on line %d" % (""+instruction, linenum));
+				print_error("error", "process_file(): Got unknown return value [ %s ] on line %d" % (""+instruction, linenum));
 			return;
 
 		offset += len(instruction);
@@ -1116,7 +1117,7 @@ def process_file(source):
 		symtype = deferred["type"];
 		symsize = {"abs8": 1, "abs16": 2, "abs32": 4, "abs64": 8, "rel16": 2};
 		if ((addr + symsize[symtype] - 1) >= len(assembly)):
-			print_error("error", "unresolved symbol extended past assembly");
+			print_error("error", "process_file(): Unresolved symbol extended past assembly");
 			return;
 	
 		if (symname not in symbols and symname in exports and output_format == "elf"):
@@ -1125,37 +1126,41 @@ def process_file(source):
 
 		if (symname not in symbols):
 			if (symname not in exports):
-				print_error("error", "Unresolved symbol '%s'" % symname);
+				print_error("error", "process_file(): Unresolved symbol '%s'" % symname);
 			else:
-				print_error("error", "Could not export symbol '%s' into %s (Did you forget to output an ELF?)" % (symname, output_format));
+				print_error("error", "process_file(): Could not export symbol '%s' into %s (Did you forget to output an ELF?)" % (symname, output_format));
 			return;
 
 		symval = symbols[symname];
 		if (symtype == "abs8"):
 			if (int_bound_check(symval, 8, 0)):
-				print_error("error", "Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "process_file(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
 				return;
 
 			assembly[addr:addr+1] = struct.pack("B", symbols[symname]);
 		elif (symtype == "abs16"):
 			if (int_bound_check(symval, 16, 0)):
-				print_error("error", "Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "process_file(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
 				return;
 
 			assembly[addr:addr+2] = struct.pack(">H", symbols[symname]);
 		elif (symtype == "abs32"):
 			if (int_bound_check(symval, 32, 0)):
-				print_error("error", "Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "process_file(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
 				return;
 
 			assembly[addr:addr+4] = struct.pack(">I", symbols[symname]);
 		elif (symtype == "abs64"):
 			if (int_bound_check(symval, 64, 0)):
-				print_error("error", "Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "process_file(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
 				return;
 
 			assembly[addr:addr+8] = struct.pack(">Q", symbols[symname]);
 		elif (symtype == "rel16"):
+			if (int_bound_check(symval, 15, 1)):
+				print_error("error", "process_file(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
+				return;
+
 			assembly[addr:addr+2] = struct.pack(">H", symbols[symname] - deferred["relbase"]);
 	
 	unresolved = new_unresolved;
@@ -1163,21 +1168,25 @@ def process_file(source):
 	assembly = bytes(assembly);
 	if (padded_size != 0):
 		if (len(assembly) > padded_size):
-			print_error("error", "Could not pad binary, assembly larger than pad size");
+			print_error("error", "process_file(): Could not pad binary, assembly larger than pad size");
 			return;
 		assembly = assembly + (b"\x00" * (padded_size - len(assembly)));
 
 	if (compressor in compressor_aliases):
 		compressor = compressor_aliases;
 	
+	if (output_format not in formats):
+		print_error("error", "process_file(): Output format '%s' not supported" % output_format);
+		return;
+	
 	if (compressor not in compressors):
-		print_error("error", "Compressor '%s' not found");
+		print_error("error", "process_file(): Compressor '%s' not found" % compressor);
 		return;
 
 	assembly = formats[output_format](assembly);
 
 	if (assembly == False):
-		print_error("error", "Output formatting error.");
+		print_error("error", "process_file(): Output formatting error.");
 		return;
 
 	assembly = compressors[compressor](assembly, compression_level);
@@ -1191,7 +1200,7 @@ def set_vmembase(origin):
 	global vmembase;
 	decoded = decode_int_helper(origin);
 	if (decoded == False):
-		print_error("error", "Could not set origin, bad integer");
+		print_error("error", "set_vmembase(): Could not set origin, bad integer");
 		exit();
 
 	vmembase = decoded;
@@ -1201,7 +1210,7 @@ def set_pad_size(size):
 	global padded_size;
 	decoded = decode_int_helper(size);
 	if (decoded == False):
-		print_error("error", "Could not set pad size, bad integer");
+		print_error("error", "set_pad_size(): Could not set pad size, bad integer");
 		exit();
 
 	padded_size = decoded;
@@ -1211,7 +1220,7 @@ def set_compression_level(level):
 	global compression_level;
 	decoded = decode_int_helper(level);
 	if (decoded == False):
-		print_error("error", "Could not set compression level, bad integer");
+		print_error("error", "set_compression_level(): Could not set compression level, bad integer");
 		exit();
 
 	compression_level = decoded;

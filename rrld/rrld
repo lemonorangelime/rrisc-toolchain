@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+
+import struct;
+import argparse;
+import importlib.machinery;
+import pathlib;
+rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/../rrasm/rrasm").load_module();
+
+ELF_SECTION_TYPE_NULL = 0x00000000;
+ELF_SECTION_TYPE_PROGBIT = 0x00000001;
+ELF_SECTION_TYPE_STRTAB = 0x00000003;
+ELF_SECTION_TYPE_REL = 0x00000009;
+ELF_SECTION_TYPE_DYNSYM = 0x0000000b;
+
+ELF_ASSEMBLY_TYPE_NULL = 0x00000000;
+ELF_ASSEMBLY_TYPE_LOAD = 0x00000001;
+ELF_ASSEMBLY_TYPE_SYMTABLE = 0x60000000;
+
+default_comment = b"rrld rrisc linker (rrld v1.0)"; # this is variable unlike rrasm (dont_strip_comment)
+comment = default_comment;
+output_format = "elf"; # output format (-f bin)
+output_filename = "a.elf"; # output filename (-o file.txt)
+ignored_warnings = []; # ignore warnings (-w warningname)
+compressor = "none"; # file compressor (-z)
+compression_level = 1; # compression level (-l)
+keep_comment = False; # keep .comment (-k)
+
+sections = {}; # sections - filled in at runtime
+assemblies = [];
+
+symbols = {}; # symbols - filled at runtime
+
+unresolved = []; # unresolved symbols - same thing
+undefined = []; # similar to unresolved, technically (oxford definition 01) different - filled at runtime
+
+entrypoint = 0x00000000;
+
+# generate bin format
+def format_bin():
+	# this is actually a bit complicated
+	assemblies.sort(key=lambda x: x["address"])
+	start_address = assemblies[0]["address"];
+	end_address = assemblies[-1]["address"] + assemblies[-1]["size"];
+	print_error("warning", "format_bin(): Doing best-effort approach to generating raw binary, using vmembase of %s" % hex(start_address), "unknown-vmembase")
+
+	final_assembly_size = end_address - start_address;
+	if (final_assembly_size > 0x100):
+		print_error("warning", "format_bin(): No way to generate non-contiguous segments, resorting to *huge* padding", "large-bin")
+
+	final_assembly = b"\x00" * final_assembly_size;
+	final_assembly = bytearray(final_assembly);
+	for assembly in assemblies:
+		final_offset = assembly["address"] - start_address;
+		final_size = assembly["size"];
+		final_assembly[final_offset:final_offset + final_size] = assembly["data"];
+
+	return bytes(final_assembly);
+
+
+# generate elf output
+def format_elf():
+	return b"";
+
+# output formats
+formats = {
+	"bin": format_bin,
+	"elf": format_elf
+};
+
+# format help
+formats_help = "set output fomat [ elf ]";
+
+# print error
+def print_error(warntype, text, ignoreflag=False):
+	if (ignoreflag != False):
+		if (ignoreflag in ignored_warnings):
+			return;
+
+		print("%s: %s [-w %s]" % (warntype, text, ignoreflag));
+	else:
+		print("%s: %s" % (warntype, text));
+
+# set compression level from string
+def set_compression_level(level):
+	global compression_level;
+	decoded = rrasm.decode_int_helper(level);
+	if (decoded == False):
+		print_error("error", "set_compression_level(): Could not set compression level, bad integer");
+		exit();
+
+	compression_level = decoded;
+
+# deserialise program header from bytes
+def deserialise_program_header_entry(phent):
+	deserialised = {};
+	deserialised["type"] = struct.unpack(">I", phent[0x00:0x04])[0];
+	if (deserialised["type"] == ELF_ASSEMBLY_TYPE_NULL or deserialised["type"] == ELF_ASSEMBLY_TYPE_SYMTABLE):
+		return None;
+
+	deserialised["offset"] = struct.unpack(">I", phent[0x04:0x08])[0];
+	deserialised["vaddr"] = struct.unpack(">I", phent[0x08:0x0c])[0];
+	deserialised["paddr"] = struct.unpack(">I", phent[0x0c:0x10])[0];
+	if (struct.unpack(">I", phent[0x10:0x14])[0] != struct.unpack(">I", phent[0x14:0x18])[0]):
+		print_error("error", "deserialise_program_header_entry(): File size and memory size don't match");
+		return False;
+
+	deserialised["size"] = struct.unpack(">I", phent[0x14:0x18])[0];
+	deserialised["flags"] = struct.unpack(">I", phent[0x18:0x1c])[0];
+	return deserialised;
+
+# deserialise section header from bytes
+def deserialise_section_header_entry(shent):
+	deserialised = {};
+	deserialised["type"] = struct.unpack(">I", shent[0x04:0x08])[0];
+	if (deserialised["type"] == ELF_SECTION_TYPE_NULL):
+		return None;
+
+	deserialised["name"] = struct.unpack(">I", shent[0x00:0x04])[0];
+	deserialised["flags"] = struct.unpack(">I", shent[0x08:0x0c])[0];
+	deserialised["vaddr"] = struct.unpack(">I", shent[0x0c:0x10])[0];
+	deserialised["offset"] = struct.unpack(">I", shent[0x10:0x14])[0];
+	deserialised["size"] = struct.unpack(">I", shent[0x14:0x18])[0];
+	deserialised["link"] = struct.unpack(">I", shent[0x18:0x1c])[0];
+	deserialised["info"] = struct.unpack(">I", shent[0x1c:0x20])[0];
+	deserialised["alignment"] = struct.unpack(">I", shent[0x20:0x24])[0];
+	deserialised["entsize"] = struct.unpack(">I", shent[0x24:0x28])[0];
+	return deserialised;
+
+def locate_shstrtab(section_header, shstrtab_idx):
+	if (shstrtab_idx == 0):
+		return None;
+
+	if (shstrtab_idx >= len(section_header)):
+		print_error("error", "locate_shstrtab(): shstrtab indexed at %d (zero-indexed), but only %d entries" % (shstrtab_idx, len(section_header)));
+		return False;
+
+	return section_header[shstrtab_idx];
+
+# read generic blob reference, add new entry["data"] key
+def read_generic_blob_reference(entry, binary):
+	off = entry["offset"];
+	entry["data"] = binary[off:off + entry["size"]];
+	return entry;
+
+def validate_section_header(section_header, local_shstrtab):
+	i = 0;
+	for section in section_header:
+		offset = section["name"];
+		link = section["link"];
+		if (offset >= local_shstrtab["size"]):
+			print_error("error", "validate_section_header(): Bad shstrtab index at section header index %d, shstrtab only %d bytes long" % (offset, len(local_shstrtab)));
+			return False;
+
+		if (link >= len(section_header)):
+			print_error("error", "validate_section_header(): Bad link value for section %d, linked to %d, only %d sections" % (i, link, len(section_header)));
+			return False;
+	
+		if (section["type"] == ELF_SECTION_TYPE_DYNSYM):
+			if (link == 0):
+				print_error("error", "validate_section_header(): DYNSYM section can not have null link (section %d)" % i);
+				return False;
+
+			if (section_header[link]["type"] != ELF_SECTION_TYPE_STRTAB):
+				print_error("error", "validate_section_header(): DYNSYM section link must be STRTAB type (section %d)" % i);
+				return False;
+
+		i = i + 1;
+	return True;
+
+def read_string(string):
+	try:
+		return string[:string.index(b"\x00")];
+	except Exception as e:
+		return string;
+
+def read_comment(section_header, local_shstrtab):
+	if (local_shstrtab == None):
+		return False;
+
+	for section in section_header:
+		offset = section["name"];
+		name = read_string(local_shstrtab["data"][offset:]);
+		if (name == b".comment"):
+			return section["data"];
+
+	return False;
+
+def process_program_header(program_header, binary):
+	for assembly in program_header:
+		if (assembly["type"] != ELF_ASSEMBLY_TYPE_LOAD):
+			continue;
+		assemblies.append({"type": "assembly", "address": assembly["vaddr"], "size": assembly["size"], "data": assembly["data"]})
+
+def locate_dynsym(section_header):
+	for section in section_header:
+		if (section["type"] == ELF_SECTION_TYPE_DYNSYM):
+			return section;
+	return None;
+
+def locate_rel(section_header):
+	for section in section_header:
+		if (section["type"] == ELF_SECTION_TYPE_REL):
+			return section;
+	return None;
+
+def lookup_assembly(address):
+	i = 0;
+	for assembly in assemblies:
+		end = assembly["address"] + assembly["size"];
+		if (address >= assembly["address"] and address <= end):
+			return i;
+		i += 1;
+	return False;
+
+def link_symbols():
+	for sym in unresolved:
+		symname = sym["value"];
+		symtype = sym["type"];
+		bytesize = {
+			"abs8": 1,
+			"abs16": 2,
+			"abs32": 4,
+			"abs64": 8,
+
+			"rel16": 2,
+		};
+
+		asmid = lookup_assembly(sym["address"] + bytesize[sym["type"]]);
+		if (type(asmid) == bool and asmid == False):
+			print_error("error", "Failed to locate assembly for unresolved symbol '%s'" % str(sym["value"], "utf-8"));
+			return False;
+
+		assembly = assemblies[asmid];
+
+		offset = sym["address"] - assembly["address"];
+		symval = symbols[symname];
+		assembly["data"] = bytearray(assembly["data"]);
+		if (symtype == "abs8"):
+			if (rrasm.int_bound_check(symval, 8, 0)):
+				print_error("error", "link_symbols(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
+				return False;
+
+			assembly["data"][offset:offset+1] = struct.pack("B", symval);
+		elif (symtype == "abs16"):
+			if (rrasm.int_bound_check(symval, 16, 0)):
+				print_error("error", "link_symbols(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
+				return False;
+
+			assembly["data"][offset:offset+2] = struct.pack(">H", symval);
+		elif (symtype == "abs32"):
+			if (rrasm.int_bound_check(symval, 32, 0)):
+				print_error("error", "link_symbols(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
+				return False;
+
+			assembly["data"][offset:offset+4] = struct.pack(">I", symval);
+		elif (symtype == "abs64"):
+			if (rrasm.int_bound_check(symval, 64, 0)):
+				print_error("error", "link_symbols(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
+				return;
+
+			assembly["data"][offset:offset+8] = struct.pack(">Q", symval);
+		elif (symtype == "rel16"):
+			if (rrasm.int_bound_check(symval, 15, 1)):
+				print_error("error", "link_symbols(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
+				return False;
+
+			assembly["data"][offset:offset+2] = struct.pack(">H", symval - sym["relbase"]);
+
+		assembly["data"] = bytes(assembly["data"]);
+		assemblies[asmid] = assembly;
+
+def deserialise_dynsym(dynsym, dynstr):
+	symoff = 0;
+	dynsym_size = dynsym["size"];
+	dynsym_entsize = dynsym["entsize"];
+	deserialised = [];
+	while (symoff < dynsym_size):
+		sym = dynsym["data"][symoff:symoff + dynsym_entsize];
+
+		nameindex = struct.unpack(">I", sym[0x00:0x04])[0];
+		if (nameindex >= dynstr["size"]):
+			print_error("error", "deserialise_dynsym(): Symbol name index extends past DYNSTR section");
+			raise Exception;
+
+		symname = read_string(dynstr["data"][nameindex:]);
+
+		value = struct.unpack(">I", sym[0x04:0x08])[0];
+		info = sym[0x0c];
+		other = sym[0x0d];
+		section = struct.unpack(">H", sym[0x0e:0x10])[0];
+		if (info != 0x11 or other != 0x00):
+			print_error("error", "deserialise_dynsym(): Encountered non-global symbol (%s), UIMPLEMENTED" % str(symname, "utf-8"));
+			raise Exception;
+
+		if (section == 0x0000):
+			undefined.append({"type": "sym", "value": symname, "relbase": value});
+		else:
+			if (symname in symbols):
+				print_error("error", "deserialise_dynsym(): Symbol '%s' defined multiple times and not undefined" % str(symname, "utf-8"));
+				raise Exception;
+
+			symbols[symname] = value;
+		deserialised.append({"type": "undefinedsym", "value": symname, "relbase": value});
+
+		symoff += dynsym_entsize;
+	return deserialised;
+
+def deserialise_reltable(reltable, dynsym):
+	off = 0;
+	size = reltable["size"];
+	entsize = reltable["entsize"];
+	while (off < size):
+		rel = reltable["data"][off:off + entsize];
+		addr = struct.unpack(">I", rel[0x00:0x04])[0];
+		info = struct.unpack(">I", rel[0x04:0x08])[0];
+		symidx = info >> 8;
+		if (symidx >= len(dynsym)):
+			print_error("error", "deserialise_reltable(): Encountered REL table symbol link past DYNSYM length");
+			raise Exception;
+
+		symname = dynsym[symidx]["value"];
+		type = info & 0xff;
+
+		relobjtypes = {
+			rrasm.ELF_RRISC_REL_8: "abs8",
+			rrasm.ELF_RRISC_REL_16: "abs16",
+			rrasm.ELF_RRISC_REL_32: "abs32",
+			rrasm.ELF_RRISC_REL_64: "abs64",
+
+			rrasm.ELF_RRISC_REL_PC16: "rel16",
+		};
+
+		unresolved.append({"type": relobjtypes[type], "value": symname, "address": addr, "relbase": dynsym[symidx]["relbase"]});
+		off += entsize;
+
+# process binary file
+def process_file(filename, binary):
+	global comment;
+	global entrypoint;
+	expected_header = b"\x7fELF" + bytes([0x01, 0x02, 0x01, rrasm.ELF_OSABI_TYPE, rrasm.ELF_OSABI_VERSION, 0x00, 0x00, 0x00]);
+	if (expected_header[0:12] != expected_header):
+		print_error("error", "process_file(): Bad ELF header, not an ELF or not an rrisc binary");
+		raise Exception;
+
+	if (struct.unpack(">H", binary[0x10:0x12])[0] != rrasm.ELF_OBJ_TYPE):
+		print_error("error", "process_file(): Bad ELF type, must be relocatable");
+		raise Exception;
+
+	if (struct.unpack(">H", binary[0x12:0x14])[0] != rrasm.ELF_MACHINE_TYPE):
+		print_error("error", "process_file(): Bad ELF machine type, must be rrisc (%s)" % rrasm.ELF_MACHINE_TYPE);
+		raise Exception;
+
+	# read various values from the header
+	elf_entrypoint = struct.unpack(">I", binary[0x18:0x1c])[0];
+	elf_phoff = struct.unpack(">I", binary[0x1c:0x20])[0];
+	elf_shoff = struct.unpack(">I", binary[0x20:0x24])[0];
+	elf_flags = struct.unpack(">I", binary[0x24:0x28])[0];
+	elf_header_size = struct.unpack(">H", binary[0x28:0x2a])[0];
+	elf_phent_size = struct.unpack(">H", binary[0x2a:0x2c])[0];
+	elf_phent_num = struct.unpack(">H", binary[0x2c:0x2e])[0];
+	elf_shent_size = struct.unpack(">H", binary[0x2e:0x30])[0];
+	elf_shent_num = struct.unpack(">H", binary[0x30:0x32])[0];
+	elf_shstrtab_idx = struct.unpack(">H", binary[0x32:0x34])[0];
+	elf_phsize = elf_phent_size * elf_phent_num;
+	elf_shsize = elf_shent_size * elf_shent_num;
+	if (elf_entrypoint != 0):
+		if (elf_entrypoint != 0 and entrypoint != 0):
+			print_error("error", "process_file(): Multiple entry points, .init generation currently unimplemented, FIXME");
+			raise Exception;
+		entrypoint = elf_entrypoint;
+
+	if (elf_phent_size < 0x20):
+		print_error("error", "process_file(): Program header entry size less than 32");
+		raise Exception;
+
+	if (elf_phoff < elf_header_size):
+		print_error("error", "process_file(): Program header collides with elf header");
+		raise Exception;
+
+	if (elf_shent_size < 0x28):
+		print_error("error", "process_file(): Section header entry size less than 40");
+		raise Exception;
+
+	if (elf_shoff < elf_header_size):
+		print_error("error", "process_file(): Section header collides with elf header");
+		raise Exception;
+
+	program_header = [];
+	section_header = [];
+
+	off = elf_phoff;
+	while (off < (elf_phoff + elf_phsize)):
+		phent = binary[off:off + elf_phent_size];
+		deserialised = deserialise_program_header_entry(phent);
+		if (deserialised != None):
+			program_header.append(deserialised);
+		elif (deserialised == False):
+			print_error("error", "process_file(): Bad program header deserialiser return");
+			raise Exception;
+		off += elf_phent_size;
+
+	off = elf_shoff;
+	while (off < (elf_shoff + elf_shsize)):
+		shent = binary[off:off + elf_shent_size];
+		deserialised = deserialise_section_header_entry(shent);
+		if (deserialised != None):
+			section_header.append(deserialised);
+		elif (deserialised == False):
+			print_error("error", "process_file(): Bad section header deserialiser return");
+			raise Exception;
+		off += elf_shent_size;
+	
+	new_program_header = [];
+	for entry in program_header:
+		new_program_header.append(read_generic_blob_reference(entry, binary));
+	program_header = new_program_header;
+
+	new_section_header = [];
+	for entry in section_header:
+		new_section_header.append(read_generic_blob_reference(entry, binary));
+	section_header = new_section_header;
+
+	if (process_program_header(program_header, binary) == False):
+		print_error("error", "process_file(): Very bad program header");
+		raise Exception;
+
+	local_shstrtab = locate_shstrtab(section_header, elf_shstrtab_idx);
+	if (local_shstrtab == False):
+		print_error("error", "process_file(): Bad locate_shstrtab() return value");
+		raise Exception;
+
+	if (validate_section_header(section_header, local_shstrtab) == False):
+		print_error("error", "process_file(): Bad validate_section_header() return value");
+		raise Exception;
+
+	if (keep_comment):
+		local_comment = read_comment(section_header, local_shstrtab);
+		if (local_comment != False):
+			if (comment == default_comment):
+				comment += b"\n\n";
+			comment += bytes(filename, "utf-8") + b": " + local_comment + b"\n";
+
+	dynsym = locate_dynsym(section_header);
+	if (dynsym != None):
+		dynstr = section_header[dynsym["link"]];
+		dynsym = deserialise_dynsym(dynsym, dynstr);
+
+	reltable = locate_rel(section_header);
+	if (reltable != None):
+		deserialise_reltable(reltable, dynsym);
+
+# process binaries
+def process_files(files):
+	global compressor
+	for file in files:
+		fd = open(file, "rb");
+		contents = fd.read();
+		fd.close();
+		try:
+			process_file(file, contents);
+		except Exception as e:
+			print_error("error", "process_files(): Could not process file '%s', %s" % (file, e));
+			return;
+
+	if (link_symbols() == False):
+		print_error("error", "process_files(): Linker failed");
+		return;
+
+	if (output_format not in formats):
+		print_error("error", "process_files(): Output format '%s' not supported" % output_format);
+		return;
+	
+	if (compressor not in rrasm.compressors):
+		print_error("error", "process_files(): Compressor '%s' not found" % compressor);
+		return;
+
+	binary = formats[output_format]();
+	if (compressor in rrasm.compressor_aliases):
+		compressor = rrasm.compressor_aliases[compressor];
+
+	binary = rrasm.compressors[compressor](binary, compression_level);
+
+	ofile = open(output_filename, "wb");
+	ofile.write(binary);
+	ofile.close();
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser(prog="rrld", description="Roadrunner Linker");
+	parser.add_argument("-o", "--output", help="output filename");
+	parser.add_argument("-f", "--format", help=formats_help);
+	parser.add_argument("-w", "--ignore-warning", help="ignore warnings [ -w warningname ]");
+	parser.add_argument("-z", "--compress", help=rrasm.compressors_help);
+	parser.add_argument("-l", "--level", help="set compression level [ 1-9 ]");
+	parser.add_argument("-k", "--keep-comment", help="don't strip .comment section", action="store_true");
+	parser.add_argument("-E", "--export-all", help="export all symbols by default", action="store_true");
+	parser.add_argument("-s", "--no-pie", help="use jmpabs over jrel", action="store_true");
+	args, binaries = parser.parse_known_args();
+	pie = not args.no_pie;
+	export_all = args.export_all;
+	if (args.ignore_warning != None):
+		ignored_warnings = [i.strip() for i in args.ignore_warning.split(",")];
+	if (args.format != None):
+		output_format = args.format;
+	if (args.output != None):
+		output_filename = args.output;
+	if (args.keep_comment != None):
+		keep_comment = args.keep_comment;
+	if (args.level != None):
+		set_compression_level(args.level);
+	if (args.compress != None):
+		compressor = args.compress;
+	process_files(binaries);
