@@ -1,0 +1,1251 @@
+#!/usr/bin/env python3
+
+import struct;
+import argparse;
+import lzma;
+import gzip;
+import shlex;
+
+## constants
+
+WORD_SIZE = 4; # power of 2
+WORD_ADDRESSED = True; # for example: (with 4 byte words) word 2 starts at `0x00001` rather than `0x00004`
+ADDRESS_SHIFT = len(bin(WORD_SIZE - 1)[2:]); # change WORD_SIZE instead
+
+### transformer constants
+FPGASYNTH_WORD_SIZE = 4;
+MI_WORD_SIZE = 4;
+ELF_MACHINE_TYPE = 0x23; # our (unrecognised, non-standard) machine type
+ELF_OSABI_TYPE = 0x80; # out (unrecognised, non-standard) OS/ABI type
+ELF_OSABI_VERSION = 0x00; # this is osabi specific anyway
+ELF_COMMENT = b"rrisc assembler (rrasm v1.1)"; # elf comment
+ELF_RRISC_REL_8 = 0x00; # rrisc arch relocation types
+ELF_RRISC_REL_16 = 0x01;
+ELF_RRISC_REL_32 = 0x02;
+ELF_RRISC_REL_64 = 0x03;
+ELF_RRISC_REL_PC16 = 0x80;
+
+## default variable values
+
+padded_size = 0; # size to pad to (0 means don't pad, -p)
+vmembase = 0x0000; # executable base (org || -b)
+entrypoint_name = "_start"; # entry point (-e entry_point)
+pie = True; # pie setting (--no-pie)
+output_format = "bin"; # output format (-f bin)
+output_filename = "a.out"; # output filename (-o file.txt)
+ignored_warnings = []; # ignored warnings (-w warningname)
+export_all = False; # export all symbols? (-E)
+compressor = "none"; # file compressor (-z)
+compression_level = 1; # compression level (-l)
+
+
+
+
+
+# instruction encoding table
+encodings = {
+	"nop":	{"opcode": 0x00, "args": 0, "encoding": ""},
+	"add":	{"opcode": 0x02, "args": 3, "encoding": "dab"},
+	"addi":	{"opcode": 0x03, "args": 3, "encoding": "dai"},
+	"sub":	{"opcode": 0x04, "args": 3, "encoding": "dab"},
+	"subi":	{"opcode": 0x05, "args": 3, "encoding": "dai"},
+	"and":	{"opcode": 0x06, "args": 3, "encoding": "dab"},
+	"andi":	{"opcode": 0x07, "args": 3, "encoding": "dai"},
+	"or":	{"opcode": 0x08, "args": 3, "encoding": "dab"},
+	"ori":	{"opcode": 0x09, "args": 3, "encoding": "dai"},
+	"xor":	{"opcode": 0x0a, "args": 3, "encoding": "dab"},
+	"xori":	{"opcode": 0x0b, "args": 3, "encoding": "dai"},
+	"shl":	{"opcode": 0x0c, "args": 3, "encoding": "dab"},
+	"shli": {"opcode": 0x0d, "args": 3, "encoding": "dai"},
+	"shr":	{"opcode": 0x0e, "args": 3, "encoding": "dab"},
+	"shri":	{"opcode": 0x0f, "args": 3, "encoding": "dai"},
+	"ld":	{"opcode": 0x10, "args": 2, "encoding": "dm"},
+	"st":	{"opcode": 0x11, "args": 2, "encoding": "Ma"},
+	"beq":	{"opcode": 0x12, "args": 3, "encoding": "dar"},
+	"blt":	{"opcode": 0x13, "args": 3, "encoding": "dar"},
+	"jmp":	{"opcode": 0x14, "args": 1, "encoding": "i"},
+	"jal":	{"opcode": 0x15, "args": 2, "encoding": "di"},
+	"jrel":	{"opcode": 0x16, "args": 1, "encoding": "r"},
+	"ldi":	{"opcode": 0x17, "args": 2, "encoding": "di"},
+	"ldc":	{"opcode": 0x18, "args": 2, "encoding": "dc"},
+	"stc":	{"opcode": 0x19, "args": 2, "encoding": "Ca"},
+	"lds":	{"opcode": 0x1a, "args": 1, "encoding": "d"},
+	"sts":	{"opcode": 0x1b, "args": 1, "encoding": "a"},
+	"push":	{"opcode": 0x1c, "args": 1, "encoding": "a"},
+	"pop":	{"opcode": 0x1d, "args": 1, "encoding": "d"},
+	"iret":	{"opcode": 0x1e, "args": 0, "encoding": ""},
+	"ldio":	{"opcode": 0x1f, "args": 2, "encoding": "da"},
+	"stio":	{"opcode": 0x20, "args": 2, "encoding": "da"},
+	"halt":	{"opcode": 0xff, "args": 0, "encoding": ""},
+};
+
+VREG_SP = -1;
+
+# register table
+registers = {
+	"r0": {"type": "reg", "value": 0},
+	"r1": {"type": "reg", "value": 1},
+	"r2": {"type": "reg", "value": 2},
+	"r3": {"type": "reg", "value": 3},
+	"r4": {"type": "reg", "value": 4},
+	"r5": {"type": "reg", "value": 5},
+	"r6": {"type": "reg", "value": 6},
+	"r7": {"type": "reg", "value": 7},
+	"r8": {"type": "reg", "value": 8},
+	"r9": {"type": "reg", "value": 9},
+	"r10": {"type": "reg", "value": 10},
+	"r11": {"type": "reg", "value": 11},
+	"r12": {"type": "reg", "value": 12},
+	"r13": {"type": "reg", "value": 13},
+	"r14": {"type": "reg", "value": 14},
+	"r15": {"type": "reg", "value": 15},
+
+	# controls
+	"iva": {"type": "ctrl", "value": 16},
+	"r16": {"type": "ctrl", "value": 16},
+
+	# virtual
+	"sp": {"type": "vreg", "value": VREG_SP},
+};
+
+# aliases
+aliases = {
+	"hlt": "halt",
+	"call": "jal",
+};
+
+symbols = {}; # symbols - filled at runtime
+
+macros = {}; # macros - same thing
+
+unresolved = []; # unresolved symbols - same
+
+exports = []; # exports - same
+
+def int_coerce(s, signed=False):
+	if (type(s) == int):
+		return {"type": "int", "value": s};
+	if (type(s) == str):
+		return {"type": "int", "value": int.from_bytes(bytes(s, "utf-8"), byteorder="big", signed=signed)};
+	if (type(s) == bytes):
+		return {"type": "int", "value": int.from_bytes(s, byteorder="big", signed=signed)};
+	if (type(s) == dict and "type" in s):
+		if (s["type"] != "str"):
+			return s;
+		return {"type": "int", "value": int.from_bytes(bytes(s["value"], "utf-8"), byteorder="big", signed=signed)};
+	return s;
+
+def int_forcecast(s, signed=False):
+	if (type(s) == int):
+		return s;
+	if (type(s) == str):
+		return int.from_bytes(bytes(s, "utf-8"), byteorder="big", signed=signed);
+	if (type(s) == bytes):
+		return int.from_bytes(s, byteorder="big", signed=signed);
+	if (type(s) == dict and "type" in s):
+		if (s["type"] == "int"):
+			return s["value"];
+		if (s["type"] != "str"):
+			raise NotImplementedError;
+		return int.from_bytes(bytes(s["value"], "utf-8"), byteorder="big", signed=signed);
+	raise NotImplementedError;
+
+# print error
+def print_error(warntype, text, ignoreflag=False):
+	if (ignoreflag != False):
+		if (ignoreflag in ignored_warnings):
+			return;
+
+		print("%s: %s [-w %s]" % (warntype, text, ignoreflag));
+	else:
+		print("%s: %s" % (warntype, text));
+
+# `mov` instruction virtual overload resolver, resolve to st, ld, or ldi depending on operand types
+def mov_virtual_instruction(a, b):
+	b = int_coerce(b);
+	if (a["type"] == "mem" and b["type"] == "reg"):
+		return {"type": "instruction", "name": "st"};
+
+	if (a["type"] == "reg" and b["type"] == "mem"):
+		return {"type": "instruction", "name": "ld"};
+
+	if (a["type"] == "reg" and (b["type"] == "int" or b["type"] == "sym")):
+		return {"type": "instruction", "name": "ldi"};
+
+	if (a["type"] == "reg" and b["type"] == "ctrl"):
+		return {"type": "instruction", "name": "ldc"};
+
+	if (a["type"] == "ctrl" and b["type"] == "reg"):
+		return {"type": "instruction", "name": "stc"};
+
+	if ((a["type"] == "vreg" and a["value"] == VREG_SP) and b["type"] == "reg"):
+		return {"type": "instruction", "name": "sts", "operands": [b]};
+
+	if (a["type"] == "reg" and (b["type"] == "vreg" and b["value"] == VREG_SP)):
+		return {"type": "instruction", "name": "lds", "operands": [a]};
+
+	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+# `jmp` instruction virtual resolver, resolve to jrel or jmp depending on pie settings
+def jmp_virtual_instruction(a):
+	if (pie):
+		return {"type": "instruction", "name": "jrel"};
+
+	return {"type": "instruction", "name": "jmp"};
+
+# `jmpabs` instruction virtual resolver, resolve to jmp always regardless of pie
+def jmpabs_virtual_instruction(a):
+	return {"type": "instruction", "name": "jmp"};
+
+# `out` instruction virtual resolver, resolve to stio always
+def out_virtual_instruction(a, b):
+	return {"type": "instruction", "name": "stio"};
+
+# `out` instruction virtual resolver, resolve to ldio
+def in_virtual_instruction(a, b):
+	return {"type": "instruction", "name": "ldio"};
+
+# generic register, #imm virtual resolver
+def r_imm_virtual_resolver(a, b, c, name):
+	if (c == False):
+		c = b;
+		b = a;
+
+	c = int_coerce(c);
+
+	if (a["type"] != "reg" and b["type"] != "reg"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	if (c["type"] == "int" or c["type"] == "sym"):
+		return {"type": "instruction", "name": name, "operands": [a, b, c]};
+
+	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+# generic register, register || register, #imm virtual resolver, resolve to rr or imm depending on operand types
+def rr_imm_virtual_resolver(a, b, c, rr, imm):
+	if (c == False):
+		c = b;
+		b = a;
+
+	c = int_coerce(c);
+
+	if (a["type"] != "reg" and b["type"] != "reg"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	if (c["type"] == "reg"):
+		return {"type": "instruction", "name": rr, "operands": [a, b, c]};
+
+	if (c["type"] == "int" or c["type"] == "sym"):
+		return {"type": "instruction", "name": imm, "operands": [a, b, c]};
+
+	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+# generic operand serialiser, serialises an operand of type to bytesize-bytes
+def serialise(bytesize, operand, offset):
+	value = operand["value"];
+
+	# decimal - float (not supported by this procesor, oh well!)
+	if (operand["type"] == "decimal" and bytesize == 4):
+		return struct.pack(">f", value);
+	if (operand["type"] == "decimal" and bytesize == 8):
+		return struct.pack(">d", value);
+
+	if (operand["type"] == "int" or operand["type"] == "sym"):
+		if (operand["type"] == "sym"):
+			reltype = { 1: "abs8", 2: "abs16", 4: "abs32", 8: "abs64" };
+			if value not in symbols:
+				unresolved.append({"type": reltype[bytesize], "symname": value, "address": offset});
+				return b"\x00" * bytesize;
+			value = symbols[value];
+
+		format = {
+			1: "B",
+			2: "H",
+			4: "I",
+			8: "Q",
+		};
+		return struct.pack(">" + format[bytesize], value);
+
+	if (operand["type"] == "str"):
+		if (bytesize == 8):
+			print_error("error", "serialise(): Don't know how to serialise 8-byte per character strings...");
+			return {"type": "error", "value": ERR_SERIALISATION_FAILED};
+
+		encodings = {
+			1: "utf-8",
+			2: "utf-16_be",
+			4: "utf-32-be"
+		}
+		return bytes(value, encodings[bytesize]);
+
+	return {"type": "error", "value": ERR_SERIALISATION_FAILED};
+
+# `org` virtual instruction, set vmembase to int operand
+def org_virtual(origin):
+	global vmembase;
+
+	origin = int_coerce(origin);
+
+	if (origin["type"] != "int"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	if (int_bound_check(origin["value"], 16, 0)):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	vmembase = origin["value"];
+	return {"type": "null"};
+
+# `extern` virtual instruction, export sym operand
+def extern_virtual(sym):
+	if (sym["type"] != "sym"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	if (output_format != "elf"):
+		print_error("warning", "Encountered `extern` when assembling static binary, this is likely a mistake", "staticextern");
+
+	exports.append(sym["value"]);
+	return {"type": "null"};
+
+# define-data virtual instruction, serialise operands of type
+def dd_virtual(offset, bytesize, *operands):
+	data = b"";
+	for operand in operands:
+		serialised = serialise(bytesize, operand, offset + len(data));
+		if (type(serialised) != bytes):
+			return serialised;
+		data += serialised;
+
+	return {"type": "data", "value": data};
+
+# virtual instruction list
+virtual = {
+	"mov": {"args": [2], "resolve": mov_virtual_instruction},
+	"add": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "add", "addi")},
+	"sub": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "sub", "subi")},
+	"and": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "and", "andi")},
+	"or": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "or", "ori")},
+	"xor": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "xor", "xori")},
+	"shl": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "shl", "shli")},
+	"shr": {"args": [2, 3], "resolve": lambda a, b, c=False: rr_imm_virtual_resolver(a, b, c, "shr", "shri")},
+
+	# support x86-like syntax support for immediate forms
+	"addi": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "addi")},
+	"subi": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "subi")},
+	"andi": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "andi")},
+	"ori": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "ori")},
+	"xori": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "xori")},
+	"shli": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "shli")},
+	"shri": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "shri")},
+
+	"org": {"args": [1], "resolve": org_virtual},
+	"extern": {"args": [1], "resolve": extern_virtual},
+	"jmp": {"args": [1], "resolve": jmp_virtual_instruction},
+	"jmpabs": {"args": [1], "resolve": jmpabs_virtual_instruction},
+	"out": {"args": [2], "resolve": out_virtual_instruction},
+	"in": {"args": [2], "resolve": in_virtual_instruction},
+	"db": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 1, *operands)},
+	"dw": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 2, *operands)},
+	"dd": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 4, *operands)},
+	"dq": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 8, *operands)},
+};
+
+# split `obj` ever `n` whatevers
+def splitn(obj, n):
+	return [obj[i:i + n] for i in range(0, len(obj), n)];
+
+# pad binary with nulls to `padlen`
+def null_pad(bin, padlen):
+	return bin + (b"\x00" * (padlen - len(bin)));
+
+# transform bin to fpgasynth format
+def fpgasynth_format_transformer(bin):
+	output = b"";
+	words = splitn(bin, FPGASYNTH_WORD_SIZE);
+	for word in words:
+		word = null_pad(word, FPGASYNTH_WORD_SIZE);
+		i = 0;
+		while (i < FPGASYNTH_WORD_SIZE): # fix endian
+			byte = hex(word[i])[2:].zfill(2).upper();
+			output += bytes(byte, "utf-8");
+			i += 1;
+		output += b"\n";
+
+	return output
+
+# transform bin to .mi format
+def mi_format_transformer(bin):
+	output = b"";
+	words = splitn(bin, MI_WORD_SIZE);
+
+	# calc header
+	header = b"#File_format=Hex\n";
+	header += b"#Address_depth=" + bytes(str(len(words) * MI_WORD_SIZE), "utf-8") + b"\n";
+	header += b"#Data_width=32\n";
+	output = header;
+
+	for word in words:
+		word = null_pad(word, MI_WORD_SIZE);
+		i = 0;
+		while (i < MI_WORD_SIZE): # fix endian
+			byte = hex(word[i])[2:].zfill(2).upper();
+			output += bytes(byte, "utf-8");
+			i += 1;
+		output += b"\n";
+
+	return output;
+
+# transfrom bin to .vmd format
+def vmd_format_transformer(bin):
+	header = b"\xfeVmD";
+	if (WORD_ADDRESSED):
+		header += struct.pack(">I", vmembase << ADDRESS_SHIFT);
+	else:
+		header += struct.pack(">I", vmembase);
+
+	output = header + bin;
+	return output;
+
+# transform bin to .roadrun format
+def roadrun_format_transformer(bin):
+	header = b"\x7fROADRUN";
+	if (WORD_ADDRESSED):
+		header += struct.pack(">I", vmembase << ADDRESS_SHIFT);
+		header += struct.pack(">I", search_for_entrypoint() << ADDRESS_SHIFT);
+	else:
+		header += struct.pack(">I", vmembase);
+		header += struct.pack(">I", search_for_entrypoint());
+
+	output = header + bin;
+	return output;
+
+# look for entry point symbols, no entry point is also perfectly valid
+def search_for_entrypoint():
+	if (entrypoint_name in symbols):
+		return symbols[entrypoint_name];
+
+	print_error("warning", "Entry point '%s' not found" % entrypoint_name, "noentry");
+	return 0x00000000;
+
+# transform bin to .elf format
+def elf_format_transformer(bin):
+	elf_header_size = 0x34;
+	elf_pheader_size = 0x40; # len(program_header);
+
+	strtab = b"\x00.shstrtab\x00.dynstr\x00.dynsym\x00.comment\x00.text\x00.rel\x00";
+	dynsym = b"";
+	dynstr = b"";
+	rel = b"";
+	exported_symbols = 0;
+
+	dynsym_index = 0;
+	for sym in symbols.keys():
+		if (sym not in exports and export_all == False):
+			continue;
+
+		dynsym += struct.pack(">I", len(dynstr));
+		dynsym += struct.pack(">I", symbols[sym]);
+		dynsym += b"\x00\x00\x00\x00";
+		dynsym += b"\x11\x00\x00\x01";
+		
+		dynstr += bytes(sym, "utf-8");
+		dynstr += b"\x00";
+		dynsym_index += 1;
+		exported_symbols += 1;
+
+	unresolved_exported = [];
+	for sym in unresolved:
+		symname = sym["symname"];
+		if (symname not in exports and export_all == False):
+			return False;
+
+		name_index = len(dynstr);
+		if (symname in unresolved_exported):
+			name_index = dynstr.index(bytes(symname, "utf-8"));
+		else:
+			dynstr += bytes(symname, "utf-8");
+			dynstr += b"\x00";
+			unresolved_exported.append(symname);
+
+		dynsym += struct.pack(">I", name_index);
+		if (sym["type"] in ["abs8", "abs16", "abs32", "abs64"]):
+			dynsym += b"\x00\x00\x00\x00";
+		else:
+			dynsym += struct.pack(">i", sym["relbase"]);
+		dynsym += b"\x00\x00\x00\x00";
+		dynsym += b"\x11\x00\x00\x00";
+
+		absreltypes = {
+			"abs8": ELF_RRISC_REL_8,
+			"abs16": ELF_RRISC_REL_16,
+			"abs32": ELF_RRISC_REL_32,
+			"abs64": ELF_RRISC_REL_64,
+
+			"rel16": ELF_RRISC_REL_PC16,
+		};
+
+		reltype = absreltypes[sym["type"]];
+		rel += struct.pack(">I", sym["address"]);
+		rel += b"\x00" + struct.pack(">H", dynsym_index) + bytes([reltype]);
+
+		dynsym_index += 1;
+		exported_symbols += 1;
+	
+	comment = ELF_COMMENT;
+
+	real_vmembase = (vmembase << ADDRESS_SHIFT) if WORD_ADDRESSED else vmembase;
+	section_header_entry_size = 0x28;
+	section_header_entry_count = 5 if (exported_symbols > 0) else 3;
+	if (len(rel) > 0):
+		section_header_entry_count += 1
+	elf_section_offset = elf_header_size + elf_pheader_size;
+	elf_section_data_offset = elf_header_size + elf_pheader_size + (section_header_entry_size * section_header_entry_count);
+	section_data_vmemaddr = real_vmembase + len(bin);
+
+	section_header = b"\x00\x00\x00\x1b"; # .comment
+	section_header += b"\x00\x00\x00\x01";
+	section_header += b"\x00\x00\x00\x05";
+	section_header += struct.pack(">I", section_data_vmemaddr + len(dynstr) + len(dynsym) + len(strtab));
+	section_header += struct.pack(">I", elf_section_data_offset + len(dynstr) + len(dynsym) + len(strtab));
+	section_header += struct.pack(">I", len(comment));
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+
+	section_header += b"\x00\x00\x00\x24"; # .text
+	section_header += b"\x00\x00\x00\x01";
+	section_header += b"\x00\x00\x00\x07";
+	section_header += struct.pack(">I", real_vmembase);
+	section_header += struct.pack(">I", elf_section_data_offset + len(dynstr) + len(dynsym) + len(strtab) + len(comment) + len(rel));
+	section_header += struct.pack(">I", len(bin));
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+
+	section_header += b"\x00\x00\x00\x01"; # .shstrtab
+	section_header += b"\x00\x00\x00\x03";
+	section_header += b"\x00\x00\x00\x07";
+	section_header += struct.pack(">I", section_data_vmemaddr + len(dynstr) + len(dynsym));
+	section_header += struct.pack(">I", elf_section_data_offset + len(dynstr) + len(dynsym));
+	section_header += struct.pack(">I", len(strtab));
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+	section_header += b"\x00\x00\x00\x00";
+
+	if (exported_symbols > 0):
+		section_header += b"\x00\x00\x00\x0b"; # .dynstr
+		section_header += b"\x00\x00\x00\x03";
+		section_header += b"\x00\x00\x00\x07";
+		section_header += struct.pack(">I", section_data_vmemaddr);
+		section_header += struct.pack(">I", elf_section_data_offset);
+		section_header += struct.pack(">I", len(dynstr));
+		section_header += b"\x00\x00\x00\x00";
+		section_header += b"\x00\x00\x00\x00";
+		section_header += b"\x00\x00\x00\x00";
+		section_header += b"\x00\x00\x00\x00";
+
+		section_header += b"\x00\x00\x00\x13"; # .dynsym
+		section_header += b"\x00\x00\x00\x0b";
+		section_header += b"\x00\x00\x00\x07";
+		section_header += struct.pack(">I", section_data_vmemaddr + len(dynstr));
+		section_header += struct.pack(">I", elf_section_data_offset + len(dynstr));
+		section_header += struct.pack(">I", len(dynsym));
+		section_header += b"\x00\x00\x00\x03";
+		section_header += b"\x00\x00\x00\x00";
+		section_header += b"\x00\x00\x00\x00";
+		section_header += b"\x00\x00\x00\x10";
+
+		if (len(rel) > 0):
+			section_header += b"\x00\x00\x00\x2a"; # .rel
+			section_header += b"\x00\x00\x00\x09";
+			section_header += b"\x00\x00\x00\x05";
+			section_header += struct.pack(">I", section_data_vmemaddr + len(dynstr) + len(dynsym) + len(strtab) + len(comment));
+			section_header += struct.pack(">I", elf_section_data_offset + len(dynstr) + len(dynsym) + len(strtab) + len(comment));
+			section_header += struct.pack(">I", len(rel));
+			section_header += b"\x00\x00\x00\x04";
+			section_header += b"\x00\x00\x00\x01";
+			section_header += b"\x00\x00\x00\x00";
+			section_header += b"\x00\x00\x00\x0c";
+
+	program_header = b"\x00\x00\x00\x01"; # type
+	program_header += struct.pack(">I", elf_section_data_offset + len(strtab) + len(dynstr) + len(dynsym) + len(comment) + len(rel)); # segment file offset
+	program_header += struct.pack(">I", real_vmembase); # virtual address
+	program_header += struct.pack(">I", real_vmembase); # physical address
+	program_header += struct.pack(">I", len(bin)); # segment file size
+	program_header += struct.pack(">I", len(bin)); # segment mem size
+	program_header += b"\x00\x00\x00\x07"; # protection flags
+	program_header += b"\x00\x00\x00\x00"; # alignment
+
+	program_header += b"\x60\x00\x00\x00"; # type
+	program_header += struct.pack(">I", elf_section_offset); # segment file offset
+	program_header += struct.pack(">I", section_data_vmemaddr); # virtual address
+	program_header += struct.pack(">I", section_data_vmemaddr); # physical address
+	program_header += struct.pack(">I", len(section_header) + len(dynstr) + len(dynsym) + len(strtab)); # segment file size
+	program_header += struct.pack(">I", len(section_header) + len(dynstr) + len(dynsym) + len(strtab)); # segment mem size
+	program_header += b"\x00\x00\x00\x07"; # protection flags
+	program_header += b"\x00\x00\x00\x00"; # alignment
+
+	header = b"\x7fELF";
+	header += bytes([0x01, 0x02, 0x01, ELF_OSABI_TYPE]); # class | data | version | ident
+	header += bytes([ELF_OSABI_VERSION, 0x00, 0x00, 0x00]); # abiver | pad
+	header += b"\x00\x00\x00\x00"; # pad
+	header += b"\x00\x01" + struct.pack(">H", ELF_MACHINE_TYPE); # type | machine
+	header += b"\x00\x00\x00\x01"; # version
+	header += struct.pack(">I", search_for_entrypoint()); # entry
+	header += struct.pack(">I", elf_header_size); # program header file offset
+	header += struct.pack(">I", elf_header_size + elf_pheader_size); # section header file offset
+	header += b"\x00\x00\x00\x00"; # flags
+	header += struct.pack(">H", elf_header_size) + b"\x00\x20"; # header size | program header entry size
+	header += struct.pack(">H", int(elf_pheader_size / 0x20)) + b"\x00\x28"; # program header entries | section header entry size
+	header += struct.pack(">H", section_header_entry_count) + b"\x00\x02"; # section header entries | section header string table index
+
+	output = header;
+	output += program_header;
+	output += section_header;
+	output += dynstr;
+	output += dynsym;
+	output += strtab;
+	output += comment;
+	output += rel;
+	output += bin;
+	return output;
+
+# format table
+formats = {
+	"bin": lambda bin: bin, # already binary, no transform
+	"fpgasynth": fpgasynth_format_transformer,
+	"roadrun": roadrun_format_transformer,
+	"mi": mi_format_transformer,
+	"vmd": vmd_format_transformer,
+	"elf": elf_format_transformer,
+};
+
+# format option help text
+formats_help = "set output format [ %s ]" % (", ".join(formats.keys()));
+
+# xz compressor assembly transformer
+def xz_compressor_transformer(bin, level):
+	return lzma.compress(bin, format=lzma.FORMAT_XZ, preset=level);
+
+# gzip compressor assembly transformer
+def gz_compressor_transformer(bin, level):
+	return gzip.compress(bin, compresslevel=level);
+
+# compressor aliases
+
+compressor_aliases = {
+	"lzma": "xz",
+	"xzip": "xz",
+	"xlib": "xz",
+
+	"zlib": "gz",
+	"gzip": "gz",
+	"glib": "gz"
+};
+
+# compressor table
+compressors = {
+	"none": lambda bin, level: bin, # no compression
+	"xz": xz_compressor_transformer,
+	"gz": gz_compressor_transformer,
+};
+
+# compressor option help text
+compressors_help = "set output compressor [ %s ]" % (", ".join(compressors.keys()));
+
+# error enum
+ERR_DECODE_FAILED = 0;
+ERR_RESOLUTION_FAILED = 1;
+ERR_UNKNOWN_DECODE_ERROR = 2;
+ERR_INCORRECT_ARG_COUNT = 3;
+ERR_UNSUPPORTED_ARGS = 4;
+ERR_SERIALISATION_FAILED = 5;
+ERR_SYM_NOT_FOUND = 6;
+ERR_SYM_REDEFINED = 7;
+
+ERR_GENERIC = -0xff;
+
+# bound check int
+def int_bound_check(int, bits, signed):
+	if ((int < 0) and signed):
+		int = abs(int) - 1;
+	maxnum = (2 ** bits) - 1;
+	if ((int < 0) or (int > maxnum)):
+		return True;
+	return False;
+
+# decode decimal operand from string
+def decode_decimal_operand(operand):
+	try:
+		# logic for this should be inverted, we should decode to a fixed point and convert to a float when needed
+		return {"type": "decimal", "value": float(operand)};
+	except Exception as e:
+		return {"type": "error", "value": ERR_DECODE_FAILED};
+
+# decode str operand from string
+def decode_str_operand(operand):
+	try:
+		lexer_output = shlex.split(operand); # this is incorrect use of shlex
+		if (len(lexer_output) != 1):
+			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+		return {"type": "str", "value": lexer_output[0]};
+	except Exception as e:
+		print_error("error", "Error parsing ASCII integer (%s)" % operand);
+		return {"type": "error", "value": ERR_DECODE_FAILED};
+
+# decode chr operand from string
+def decode_chr_operand(operand):
+	try:
+		lexer_output = shlex.split(operand); # this is incorrect use of shlex
+		if (len(lexer_output) != 1):
+			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+		encoded = bytes(lexer_output[0], "utf-8");
+		if (len(encoded) != 1):
+			print_error("error", "Error parsing ASCII integer (%s)" % operand);
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+		return encoded[0];
+	except Exception as e:
+		print_error("error", "Error parsing ASCII integer (%s)" % operand);
+		return {"type": "error", "value": ERR_DECODE_FAILED};
+
+# decode int operand from string - UNIMPLEMENTED
+def decode_int_helper(num):
+	num = num.strip();
+	try:
+		if (num.startswith("0x")):
+			return int(num, 16);
+
+		if (num.startswith("0o")):
+			return int(num, 8);
+
+		if (num.startswith("0b")):
+			return int(num, 2);
+
+		if (num[0] == '\'' and num[-1] == '\''):
+			return decode_chr_operand(num);
+
+		return int(num, 10);
+	except Exception as e:
+		return False;
+
+# decode mem operand from string - UNIMPLEMENTED
+def decode_mem_operand(operand):
+	decoded = {"type": "mem", "value": 0, "imm": 0};
+
+	reference = operand[1:-1].replace(" ", "");
+
+	# decode adden if present, adden can be omitted ...
+	try:
+		adden_index = reference.index("+");
+		decodedint = decode_operand(reference[adden_index+1:]);
+		if (decodedint["type"] == "sym"):
+			decoded["imm"] = 0;
+			decoded["sym"] = decodedint["value"];
+			regname = reference[:adden_index];
+		else:
+			try:
+				decodedint = int_forcecast(decodedint);
+			except Exception as e:
+				print_error("error", "Could not force cast immediate int in memory ref %s" % operand);
+				return {"type": "error", "value": ERR_DECODE_FAILED};
+			decoded["imm"] = decodedint;
+			regname = reference[:adden_index];
+	except Exception as e:
+		regname = reference;
+
+	# ... ra cannot, error if not present
+	if (regname not in registers):
+		return {"type": "error", "value": ERR_DECODE_FAILED};
+
+	decoded["value"] = registers[regname]["value"];
+	return decoded;
+
+# decode int operand from string - UNIMPLEMENTED
+def decode_int_operand(operand):
+	try:
+		decoded = decode_int_helper(operand);
+		if (type(decoded) != int):
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+
+		return {"type": "int", "value": decoded};
+	except Exception as e:
+		return {"type": "error", "value": ERR_DECODE_FAILED};
+
+# does operand look like decimal?
+def looks_like_decimal(operand):
+	try: # this is really stupid
+		int(operand);
+		return False;
+	except:
+		pass
+	try:
+		float(operand);
+		return True;
+	except:
+		return False;
+
+# decode operand to type
+def decode_operand(operand):
+	if (operand in registers):
+		return registers[operand];
+
+	if (operand[0] == '[' and operand[-1] == ']'):
+		return decode_mem_operand(operand);
+
+	if (operand[0] == '"' and operand[-1] == '"'):
+		return decode_str_operand(operand);
+
+	intdecode = decode_int_operand(operand); # try as int
+	if (intdecode["type"] == "error" and (operand[0] != '\'' and operand[-1] != '\'')):
+		decimaldecode = decode_decimal_operand(operand); # try as decimal
+
+		if (decimaldecode["type"] == "error"):
+			return {"type": "sym", "value": operand}; # assume ths is some kind of symbol
+
+		return decimaldecode;
+
+	return intdecode;
+
+# resolve an instruction, pass through alias and virtual tables
+def resolve_final_instruction(insname, operands, offset):
+	if (insname in aliases):
+		insname = aliases[insname];
+
+	if (insname in virtual):
+		resolver = virtual[insname];
+		if (resolver["args"] == False or len(operands) in resolver["args"]):
+			try:
+				if ("wantsoffset" in resolver):
+					return resolver["resolve"](offset, *operands);
+				else:
+					return resolver["resolve"](*operands);
+			except Exception as e:
+				return {"type": "error", "value": ERR_RESOLUTION_FAILED};
+
+	return {"type": "instruction", "name": insname};
+
+# decode symbol to relsym or null type
+def decode_symbol(symbol):
+	if (symbol[-1] == ':'):
+		return {"type": "relsym", "value": symbol[:-1]}; # make relative symbol here
+
+	words = symbol.split(" ");
+	if (len(words) != 3):
+		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+	name = words[0];
+	value = decode_int_helper(words[2]);
+	if (name in symbols):
+		print_error("error", "Redefined symbol %s" % name);
+		return {"type": "error", "value": ERR_SYM_REDEFINED};
+
+	symbols[name] = value;
+	return {"type": "null"};
+
+# deduplicate character in string
+def strdedup(str, chr):
+	dup = chr + chr;
+	while (dup in str):
+		str = str.replace(dup, chr);
+	return str;
+
+# preform fixed symbol decoding prepass
+def fixed_sym_decode_prepass(instruction):
+	deduped = strdedup(instruction, ' ').strip();
+	words = deduped.split(' ');
+	if (len(words) != 3):
+		return {"type": "null"};
+
+	if (words[1].lower() == "equ"):
+		return decode_symbol(deduped);
+
+	return {"type": "null"};
+
+# decode instruction to ast object
+def decode_instruction(instruction, offset):
+	try:
+		instruction = instruction.strip();
+		if ' ' in instruction:
+			deduped = strdedup(instruction, ' ').strip();
+			words = deduped.split(' ');
+			if (len(words) == 3 and words[1].lower() == "equ"):
+				return {"type": "null"};
+
+			splitpoint = instruction.index(' ');
+			insname = instruction[:splitpoint].strip().lower();
+
+			oplist = instruction[splitpoint+1:];
+			operands = oplist.split(',');
+		else:
+			if (instruction[-1] == ':'):
+				return decode_symbol(instruction.replace(' ', ''));
+
+			insname = instruction;
+			operands = [];
+
+		decoded_operands = [];
+		for operand in operands:
+			decoded = decode_operand(operand.strip());
+			if (decoded["type"] == "error"):
+				return decoded;
+			decoded_operands.append(decoded);
+
+		resolved = resolve_final_instruction(insname, decoded_operands, offset);
+		if (resolved["type"] in ["data", "error", "null"]):
+			return resolved;
+
+		if (resolved["type"] != "instruction"):
+			return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+		if ("operands" in resolved):
+			decoded_operands = resolved["operands"];
+
+		return {"type": "instruction", "name": resolved["name"], "operands": decoded_operands};
+	except Exception as e:
+		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+# serialise instruction at file offset
+def serialise_instruction(instruction, offset):
+	name = instruction["name"];
+	operands = instruction["operands"];
+	if (name not in encodings):
+		return {"type": "error", "value": ERR_RESOLUTION_FAILED};
+
+	serialised = bytearray([encodings[name]["opcode"], 0, 0, 0]);
+	encoding = encodings[name];
+	if (encoding["args"] != len(operands)):
+		return {"type": "error", "value": ERR_INCORRECT_ARG_COUNT};
+
+	i = 0;
+	for operand in operands:
+		relative_unresolved = False;
+		letter = encoding["encoding"][i];
+		if (operand["type"] == "str"):
+			operand = int_coerce(operand);
+		if (operand["type"] == "sym"):
+			symname = operand["value"];
+			if (symname in symbols):
+				operand = {"type": "int", "value": symbols[symname]};
+			else:
+				operand = {"type": "int", "value": vmembase};
+				if (letter == 'r'):
+					relative_unresolved = True;
+					if (WORD_ADDRESSED):
+						unresolved.append({"type": "rel16", "symname": symname, "address": offset + 2, "relbase": vmembase + (offset >> ADDRESS_SHIFT)});
+					else:
+						unresolved.append({"type": "rel16", "symname": symname, "address": offset + 2, "relbase": vmembase + offset});
+				else:
+					unresolved.append({"type": "abs16", "symname": symname, "address": offset + 2});
+
+		if (operand["type"] == "mem" and "sym" in operand):
+			symname = operand["sym"];
+			value = operand["value"];
+			if (symname in symbols):
+				operand = {"type": "mem", "value": value, "imm": symbols[symname]};
+			else:
+				operand = {"type": "mem", "value": value, "imm": vmembase};
+				unresolved.append({"type": "abs16", "symname": symname, "address": offset + 2});
+
+		# this needs to be simplified, very messy due to frequent changes
+		if ((letter == 'd' or letter == 'a' or letter == 'b') and operand["type"] != "reg"):
+			return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+		if ((letter == 'm' or letter == 'M') and operand["type"] != "mem"):
+			return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+		if ((letter == 'i' or letter == 'r') and operand["type"] != "int"):
+			return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+		if ((letter == 'c' or letter == 'C') and operand["type"] != "ctrl"):
+			return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+		if (letter == 'd' or letter == 'M' or letter == "C"):
+			is_control = letter == "C";
+			serialised[1] = serialised[1] | ((operand["value"] - (16 if is_control else 0)) << 4);
+
+		if (letter == 'a' or letter == 'm' or letter == "c"):
+			is_control = letter == "c";
+			serialised[1] = serialised[1] | operand["value"] - (16 if is_control else 0);
+
+		if (letter == 'b'):
+			serialised[2] = serialised[2] | (operand["value"] << 4);
+
+		if (letter == 'i'):
+			value = operand["value"];
+			if (int_bound_check(value, 16, 0)):
+				return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+			serialised[3] = value & 0xff;
+			serialised[2] = (value >> 8) & 0xff;
+
+		if (letter == 'r' and relative_unresolved == False):
+			if (WORD_ADDRESSED):
+				value = operand["value"] - (vmembase + (offset >> ADDRESS_SHIFT));
+			else:
+				value = operand["value"] - (vmembase + offset);
+
+			if (int_bound_check(value, 15, 1)):
+				print_error("error", "could not encode relative reference, %s outside int16_t limits" % value);
+				return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+			packed = struct.pack(">h", value);
+			serialised[2] = packed[0];
+			serialised[3] = packed[1];
+
+		if ((letter == 'm' or letter == 'M') and operand["type"] == "mem"):
+			if (operand["imm"] < 0 or operand["imm"] >= 0x10000):
+				return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+			serialised[3] = operand["imm"] & 0xff;
+			serialised[2] = (operand["imm"] >> 8) & 0xff;
+
+		i = i + 1;
+
+	return bytes(serialised);
+
+# assemble instruction at file offset
+def assemble_instruction(instruction, offset):
+	decoded = decode_instruction(instruction, offset);
+	if (decoded["type"] == "error"):
+		return decoded;
+
+	if (decoded["type"] == "data"):
+		return decoded["value"];
+
+	if (decoded["type"] == "relsym"):
+		symname = decoded["value"];
+		if (symname in symbols):
+			print_error("error", "Redefined symbol %s" % symname);
+			return {"type": "error", "value": ERR_SYM_REDEFINED};
+
+		if (WORD_ADDRESSED):
+			symbols[symname] = vmembase + (offset >> ADDRESS_SHIFT);
+		else:
+			symbols[symname] = vmembase + offset;
+
+		return b"";
+
+	if (decoded["type"] == "null"):
+		return b"";
+
+	if (decoded["type"] != "instruction"):
+		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+	return serialise_instruction(decoded, offset);
+
+# strip comments
+def strip_comments(line):
+	if (";" not in line):
+		return line;
+
+	return line[:line.index(";")];
+
+# error to pretty name
+def err2name(code):
+	if (code == ERR_DECODE_FAILED):
+		return "ERR_DECODE_FAILED";
+	if (code == ERR_RESOLUTION_FAILED):
+		return "ERR_RESOLUTION_FAILED";
+	if (code == ERR_UNKNOWN_DECODE_ERROR):
+		return "ERR_UNKNOWN_DECODE_ERROR";
+	if (code == ERR_INCORRECT_ARG_COUNT):
+		return "ERR_INCORRECT_ARG_COUNT";
+	if (code == ERR_UNSUPPORTED_ARGS):
+		return "ERR_UNSUPPORTED_ARGS";
+	if (code == ERR_SERIALISATION_FAILED):
+		return "ERR_SERIALISATION_FAILED";
+	if (code == ERR_SYM_NOT_FOUND):
+		return "ERR_SYM_NOT_FOUND";
+	if (code == ERR_GENERIC):
+		return "ERR_GENERIC";
+
+# process `source`, assemble, output to `output_file` in `output_format`
+def process_file(source):
+	global unresolved;
+	global compressor;
+	file = open(source, "r");
+	contents = file.read();
+	file.close();
+
+	assembly = bytearray();
+	lines = contents.split('\n');
+	linenum = 1;
+	for line in lines:
+		line = strip_comments(line.strip());
+		if (line == ""):
+			linenum += 1;
+			continue;
+
+		stat = fixed_sym_decode_prepass(line);
+		if (stat["type"] != "null"):
+			if (stat["type"] == "error"):
+				print_error("error", "%s on line %d" % (err2name(stat["value"]), linenum));
+			else:
+				print_error("error", "unknown [ %s ] return value on line %d" % (""+stat, linenum));
+			return;
+		linenum += 1;
+
+	offset = 0;
+	linenum = 1;
+	for line in lines:
+		line = strip_comments(line.strip());
+		if (line == ""):
+			linenum += 1;
+			continue;
+
+		instruction = assemble_instruction(line, offset);
+		if (type(instruction) != bytes):
+			if (instruction["type"] == "error"):
+				print_error("error", "%s on line %d" % (err2name(instruction["value"]), linenum));
+			else:
+				print_error("error", "unknown [ %s ] return value on line %d" % (""+instruction, linenum));
+			return;
+
+		offset += len(instruction);
+		assembly += instruction;
+		linenum += 1;
+
+	new_unresolved = [];
+	for deferred in unresolved:
+		addr = deferred["address"];
+		symname = deferred["symname"];
+		symtype = deferred["type"];
+		symsize = {"abs8": 1, "abs16": 2, "abs32": 4, "abs64": 8, "rel16": 2};
+		if ((addr + symsize[symtype] - 1) >= len(assembly)):
+			print_error("error", "unresolved symbol extended past assembly");
+			return;
+	
+		if (symname not in symbols and symname in exports and output_format == "elf"):
+			new_unresolved.append(deferred);
+			continue; # this is fine, 
+
+		if (symname not in symbols):
+			if (symname not in exports):
+				print_error("error", "Unresolved symbol '%s'" % symname);
+			else:
+				print_error("error", "Could not export symbol '%s' into %s (Did you forget to output an ELF?)" % (symname, output_format));
+			return;
+
+		symval = symbols[symname];
+		if (symtype == "abs8"):
+			if (int_bound_check(symval, 8, 0)):
+				print_error("error", "Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
+				return;
+
+			assembly[addr:addr+1] = struct.pack("B", symbols[symname]);
+		elif (symtype == "abs16"):
+			if (int_bound_check(symval, 16, 0)):
+				print_error("error", "Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
+				return;
+
+			assembly[addr:addr+2] = struct.pack(">H", symbols[symname]);
+		elif (symtype == "abs32"):
+			if (int_bound_check(symval, 32, 0)):
+				print_error("error", "Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
+				return;
+
+			assembly[addr:addr+4] = struct.pack(">I", symbols[symname]);
+		elif (symtype == "abs64"):
+			if (int_bound_check(symval, 64, 0)):
+				print_error("error", "Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
+				return;
+
+			assembly[addr:addr+8] = struct.pack(">Q", symbols[symname]);
+		elif (symtype == "rel16"):
+			assembly[addr:addr+2] = struct.pack(">H", symbols[symname] - deferred["relbase"]);
+	
+	unresolved = new_unresolved;
+
+	assembly = bytes(assembly);
+	if (padded_size != 0):
+		if (len(assembly) > padded_size):
+			print_error("error", "Could not pad binary, assembly larger than pad size");
+			return;
+		assembly = assembly + (b"\x00" * (padded_size - len(assembly)));
+
+	if (compressor in compressor_aliases):
+		compressor = compressor_aliases;
+	
+	if (compressor not in compressors):
+		print_error("error", "Compressor '%s' not found");
+		return;
+
+	assembly = formats[output_format](assembly);
+
+	if (assembly == False):
+		print_error("error", "Output formatting error.");
+		return;
+
+	assembly = compressors[compressor](assembly, compression_level);
+
+	ofile = open(output_filename, "wb");
+	ofile.write(assembly);
+	ofile.close();
+
+# set vmembase from string
+def set_vmembase(origin):
+	global vmembase;
+	decoded = decode_int_helper(origin);
+	if (decoded == False):
+		print_error("error", "Could not set origin, bad integer");
+		exit();
+
+	vmembase = decoded;
+
+# set pad size from string
+def set_pad_size(size):
+	global padded_size;
+	decoded = decode_int_helper(size);
+	if (decoded == False):
+		print_error("error", "Could not set pad size, bad integer");
+		exit();
+
+	padded_size = decoded;
+
+# set compression level from string
+def set_compression_level(level):
+	global compression_level;
+	decoded = decode_int_helper(level);
+	if (decoded == False):
+		print_error("error", "Could not set compression level, bad integer");
+		exit();
+
+	compression_level = decoded;
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser(prog="rrasm", description="Roadrunner Assembler");
+	parser.add_argument("source");
+	parser.add_argument("-o", "--output", help="output filename");
+	parser.add_argument("-f", "--format", help=formats_help);
+	parser.add_argument("-b", "--origin", help="set origin");
+	parser.add_argument("-e", "--entry-point", help="set entrypoint [ -e main ] (not valid for all output formats)");
+	parser.add_argument("-w", "--ignore-warning", help="ignore warnings [ -w warningname ]");
+	parser.add_argument("-p", "--pad-size", help="pad ASSEMBLY to size (not output file)");
+	parser.add_argument("-z", "--compress", help=compressors_help);
+	parser.add_argument("-l", "--level", help="set compression level [ 1-9 ]");
+	parser.add_argument("-E", "--export-all", help="export all symbols by default", action="store_true");
+	parser.add_argument("-s", "--no-pie", help="use jmpabs over jrel", action="store_true");
+	args = parser.parse_args();
+	pie = not args.no_pie;
+	export_all = args.export_all;
+	if (args.origin != None):
+		set_vmembase(args.origin);
+	if (args.entry_point != None):
+		entrypoint_name = args.entry_point;
+	if (args.ignore_warning != None):
+		ignored_warnings = [i.strip() for i in args.ignore_warning.split(",")];
+	if (args.format != None):
+		output_format = args.format;
+	if (args.output != None):
+		output_filename = args.output;
+	if (args.pad_size != None):
+		set_pad_size(args.pad_size);
+	if (args.level != None):
+		set_compression_level(args.level);
+	if (args.compress != None):
+		compressor = args.compress;
+	process_file(args.source);
