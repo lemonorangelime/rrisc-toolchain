@@ -381,42 +381,33 @@ def splitn(obj, n):
 def null_pad(bin, padlen):
 	return bin + (b"\x00" * (padlen - len(bin)));
 
+def fpgasynth_wordiser_helper(bin, wordsize):
+	words = splitn(bin, wordsize);
+	wordised = b"";
+	for word in words:
+		word = null_pad(word, wordsize);
+		i = 0;
+		while (i < wordsize): # fix endian
+			byte = hex(word[i])[2:].zfill(2).upper();
+			wordised += bytes(byte, "utf-8");
+			i += 1;
+		wordised += b"\n";
+	return wordised;
+
+def mi_generate_header(bin, wordsize):
+	words = splitn(bin, wordsize);
+	header = b"#File_format=Hex\n";
+	header += b"#Address_depth=" + bytes(str(len(words) * wordsize), "utf-8") + b"\n";
+	header += b"#Data_width=" + bytes(str(wordsize * 8), "utf-8") + b"\n";
+	return header;
+
 # transform bin to fpgasynth format
 def fpgasynth_format_transformer(bin):
-	output = b"";
-	words = splitn(bin, FPGASYNTH_WORD_SIZE);
-	for word in words:
-		word = null_pad(word, FPGASYNTH_WORD_SIZE);
-		i = 0;
-		while (i < FPGASYNTH_WORD_SIZE): # fix endian
-			byte = hex(word[i])[2:].zfill(2).upper();
-			output += bytes(byte, "utf-8");
-			i += 1;
-		output += b"\n";
-
-	return output
+	return fpgasynth_wordiser_helper(bin, FPGASYNTH_WORD_SIZE);
 
 # transform bin to .mi format
 def mi_format_transformer(bin):
-	output = b"";
-	words = splitn(bin, MI_WORD_SIZE);
-
-	# calc header
-	header = b"#File_format=Hex\n";
-	header += b"#Address_depth=" + bytes(str(len(words) * MI_WORD_SIZE), "utf-8") + b"\n";
-	header += b"#Data_width=32\n";
-	output = header;
-
-	for word in words:
-		word = null_pad(word, MI_WORD_SIZE);
-		i = 0;
-		while (i < MI_WORD_SIZE): # fix endian
-			byte = hex(word[i])[2:].zfill(2).upper();
-			output += bytes(byte, "utf-8");
-			i += 1;
-		output += b"\n";
-
-	return output;
+	return mi_generate_header(bin, MI_WORD_SIZE) + fpgasynth_wordiser_helper(bin, MI_WORD_SIZE);
 
 # transfrom bin to .vmd format
 def vmd_format_transformer(bin):

@@ -12,3 +12,5 @@ mov [r0 + "hi"], r0
 mov r0, [r0 + "hi"]
 mov r0, [r0 + 'a']
 mov r0, [r0 + 0x12]
+mov r1, r0
+mov r14, r4

@@ -56,6 +56,36 @@ def format_bin():
 
 	return bytes(final_assembly);
 
+def format_roadrun():
+	bin = format_bin();
+	
+	assemblies.sort(key=lambda x: x["address"])
+	start_address = assemblies[0]["address"];
+	header = b"\x7fROADRUN";
+	header += struct.pack(">I", start_address << 2);
+	header += struct.pack(">I", entrypoint << 2);
+
+	output = header + bin;
+	return output;
+
+def format_vmd():
+	bin = format_bin();
+	
+	assemblies.sort(key=lambda x: x["address"])
+	start_address = assemblies[0]["address"];
+	header = b"\xfeVmD";
+	header += struct.pack(">I", start_address << 2);
+
+	output = header + bin;
+	return output;
+
+def format_fpgasynth():
+	bin = format_bin();
+	return rrasm.fpgasynth_wordiser_helper(bin, 4);
+
+def format_mi():
+	bin = format_bin();
+	return rrasm.mi_generate_header(bin, 4) + rrasm.fpgasynth_wordiser_helper(bin, 4);
 
 # generate elf output
 def format_elf():
@@ -64,11 +94,15 @@ def format_elf():
 # output formats
 formats = {
 	"bin": format_bin,
-	"elf": format_elf
+	"fpgasynth": format_fpgasynth,
+	"mi": format_mi,
+	"roadrun": format_roadrun,
+	"vmd": format_vmd,
+	#"elf": format_elf
 };
 
 # format help
-formats_help = "set output fomat [ elf ]";
+formats_help = "set output format [ %s ]" % (", ".join(formats.keys()));
 
 # print error
 def print_error(warntype, text, ignoreflag=False):
@@ -185,10 +219,22 @@ def read_comment(section_header, local_shstrtab):
 
 	return False;
 
+def overlaps_assembly(address, size):
+	end = address + size;
+	for assembly in assemblies:
+		check_start = assembly["address"];
+		check_end = assembly["address"] + assembly["size"];
+		if (check_start < end and check_end >= address):
+			print_error("error", "overlaps_assembly(): Assemblies overlap and not relocating, unimplemented. FIX ME");
+			return True;
+	return False
+
 def process_program_header(program_header, binary):
 	for assembly in program_header:
 		if (assembly["type"] != ELF_ASSEMBLY_TYPE_LOAD):
 			continue;
+		if (overlaps_assembly(assembly["vaddr"], assembly["size"])):
+			return False;
 		assemblies.append({"type": "assembly", "address": assembly["vaddr"], "size": assembly["size"], "data": assembly["data"]})
 
 def locate_dynsym(section_header):
