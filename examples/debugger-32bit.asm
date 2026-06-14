@@ -78,10 +78,12 @@ add r13, 1
 ; add new tests here hew new I/O devices
 ; MAKE SURE TO SET r14
 
-xor r14, r14
-mov r14, 0xffff
-shl r14, 16
-or r14, 0xffff
+okay:
+	xor r14, r14
+	mov r14, 0xffff
+	shl r14, 16
+	or r14, 0xffff
+	or r13, r14
 done:	; ON END
 	;
 	; r0 = 0xff00 (Stall Signal)
