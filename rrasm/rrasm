@@ -84,13 +84,15 @@ encodings = {
 	"jrel":	{"opcode": 0x16, "args": 1, "encoding": "r"},
 	"ldi":	{"opcode": 0x17, "args": 2, "encoding": "di"},
 	"bneq":	{"opcode": 0x18, "args": 3, "encoding": "dar"},
-	"bgt":	{"opcode": 0x19, "args": 3, "encoding": "dar"},
+#	"bgt":	{"opcode": 0x19, "args": 3, "encoding": "dar"},
 	"lds":	{"opcode": 0x1a, "args": 1, "encoding": "d"},
 	"sts":	{"opcode": 0x1b, "args": 1, "encoding": "a"},
 	"push":	{"opcode": 0x1c, "args": 1, "encoding": "a"},
 	"pop":	{"opcode": 0x1d, "args": 1, "encoding": "d"},
 	"call":	{"opcode": 0x1e, "args": 1, "encoding": "r"},
 	"ret":	{"opcode": 0x1f, "args": 0, "encoding": ""},
+	"mulu":	{"opcode": 0x43, "args": 3, "encoding": "dab"},
+	"mull":	{"opcode": 0x44, "args": 3, "encoding": "dab"},
 	# ...
 	"iret":	{"opcode": 0x22, "args": 0, "encoding": ""},
 	"ldio":	{"opcode": 0x23, "args": 2, "encoding": "da"},
@@ -232,7 +234,7 @@ def out_virtual_instruction(a, b):
 def in_virtual_instruction(a, b):
 	return {"type": "instruction", "name": "ldio"};
 
-def incbin_virtual_instruction(a):
+def incbin_virtual(a):
 	if (a["type"] != "str"):
 		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
@@ -279,6 +281,17 @@ def rr_imm_virtual_resolver(a, b, c, rr, imm):
 		return {"type": "instruction", "name": imm, "operands": [a, b, c]};
 
 	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+def mul_virtual_resolver(a, b, c, d, which="mull"):
+	if (d):
+		print_error("error", "mul_virtual_resolver(): 4 arguments, UNIMPLEMENTED, FIXME");
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	if (c):
+		return {"type": "instruction", "name": which, "operands": [a, b, c]};
+
+	return {"type": "instruction", "name": which, "operands": [a, a, b]};
+
 
 # generic operand serialiser, serialises an operand of type to bytesize-bytes
 def serialise(bytesize, operand, offset):
@@ -360,6 +373,9 @@ def dd_virtual(offset, bytesize, *operands):
 
 	return {"type": "data", "value": data};
 
+def bgt_virtual_instruction(a, b, c):
+	return {"type": "instruction", "name": "blt", "operands": [b, a, c]};
+
 # virtual instruction list
 virtual = {
 	"mov": {"args": [2], "resolve": mov_virtual_instruction},
@@ -380,13 +396,19 @@ virtual = {
 	"shli": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "shli")},
 	"shri": {"args": [2, 3], "resolve": lambda a, b, c=False: r_imm_virtual_resolver(a, b, c, "shri")},
 
+	"mul": {"args": [2, 3, 4], "resolve": lambda a, b, c=False, d=False: mul_virtual_resolver(a, b, c, d, "mull")},
+	"mull": {"args": [2, 3], "resolve": lambda a, b, c=False: mul_virtual_resolver(a, b, c, False, "mull")},
+	"mulh": {"args": [2, 3], "resolve": lambda a, b, c=False: mul_virtual_resolver(a, b, c, False, "mulh")},
+
 	"org": {"args": [1], "resolve": org_virtual},
 	"extern": {"args": [1], "resolve": extern_virtual},
+	"incbin": {"args": [1], "resolve": incbin_virtual},
 	"jmp": {"args": [1], "resolve": jmp_virtual_instruction},
 	"jmpabs": {"args": [1], "resolve": jmpabs_virtual_instruction},
 	"out": {"args": [2], "resolve": out_virtual_instruction},
 	"in": {"args": [2], "resolve": in_virtual_instruction},
-	"incbin": {"args": [1], "resolve": incbin_virtual_instruction},
+	"bgt": {"args": [3], "resolve": bgt_virtual_instruction},
+
 	"db": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 1, *operands)},
 	"dw": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 2, *operands)},
 	"dd": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 4, *operands)},
