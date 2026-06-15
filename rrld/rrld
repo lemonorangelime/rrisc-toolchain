@@ -24,6 +24,8 @@ ignored_warnings = []; # ignore warnings (-w warningname)
 compressor = "none"; # file compressor (-z)
 compression_level = 1; # compression level (-l)
 keep_comment = False; # keep .comment (-k)
+preform_relocation = False; # preform relocation?
+relocation_vmembase = 0x0000; # relocate to here, can also be generated at runtime if unset
 
 sections = {}; # sections - filled in at runtime
 assemblies = [];
@@ -74,7 +76,7 @@ def format_vmd():
 	assemblies.sort(key=lambda x: x["address"])
 	start_address = assemblies[0]["address"];
 	header = b"\xfeVmD";
-	header += struct.pack(">I", start_address << 2);
+	header += struct.pack(">I", start_address);
 
 	output = header + bin;
 	return output;
@@ -118,11 +120,20 @@ def print_error(warntype, text, ignoreflag=False):
 def set_compression_level(level):
 	global compression_level;
 	decoded = rrasm.decode_int_helper(level);
-	if (decoded == False):
+	if (type(decoded) == bool and decoded == False):
 		print_error("error", "set_compression_level(): Could not set compression level, bad integer");
 		exit();
 
 	compression_level = decoded;
+
+def set_relocation_vmembase(level):
+	global relocation_vmembase;
+	decoded = rrasm.decode_int_helper(level);
+	if (type(decoded) == bool and decoded == False):
+		print_error("error", "set_relocation_vmembase(): Could not set memory base, bad integer");
+		exit();
+
+	relocation_vmembase = decoded << 2;
 
 # deserialise program header from bytes
 def deserialise_program_header_entry(phent):
@@ -219,23 +230,45 @@ def read_comment(section_header, local_shstrtab):
 
 	return False;
 
-def overlaps_assembly(address, size):
+def overlaps_assembly(current, address, size):
 	end = address + size;
+	asmid = 0;
 	for assembly in assemblies:
+		if (asmid == current):
+			continue;
+
 		check_start = assembly["address"];
 		check_end = assembly["address"] + assembly["size"];
-		if (check_start < end and check_end >= address):
+		if (check_start < end and check_end > address):
+			print(check_start, end, check_end, address)
 			print_error("error", "overlaps_assembly(): Assemblies overlap and not relocating, unimplemented. FIX ME");
 			return True;
+
+		asmid += 1;
 	return False
 
-def process_program_header(program_header, binary):
+def process_program_header(program_header):
 	for assembly in program_header:
 		if (assembly["type"] != ELF_ASSEMBLY_TYPE_LOAD):
 			continue;
-		if (overlaps_assembly(assembly["vaddr"], assembly["size"])):
+
+		id = len(assemblies);
+		assemblies.append({
+			"type": "assembly",
+			"id": id,
+			"address": assembly["vaddr"],
+			"size": assembly["size"],
+			"data": assembly["data"],
+			"symbols": []
+		});
+
+def validate_assemblies():
+	asmid = 0;
+	for assembly in assemblies:
+		if (overlaps_assembly(asmid, assembly["address"], assembly["size"])):
 			return False;
-		assemblies.append({"type": "assembly", "address": assembly["vaddr"], "size": assembly["size"], "data": assembly["data"]})
+		asmid += 1;
+	return True;
 
 def locate_dynsym(section_header):
 	for section in section_header:
@@ -280,40 +313,91 @@ def link_symbols():
 
 		offset = sym["address"] - assembly["address"];
 		symval = symbols[symname];
-		assembly["data"] = bytearray(assembly["data"]);
+		binary = bytearray(assembly["data"]);
 		if (symtype == "abs8"):
 			if (rrasm.int_bound_check(symval, 8, 0)):
 				print_error("error", "link_symbols(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
 				return False;
 
-			assembly["data"][offset:offset+1] = struct.pack("B", symval);
+			assembly["data"][offset:offset+1] = struct.pack("B", symval >> 2);
 		elif (symtype == "abs16"):
 			if (rrasm.int_bound_check(symval, 16, 0)):
 				print_error("error", "link_symbols(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
 				return False;
 
-			assembly["data"][offset:offset+2] = struct.pack(">H", symval);
+			binary[offset:offset+2] = struct.pack(">H", symval >> 2);
 		elif (symtype == "abs32"):
 			if (rrasm.int_bound_check(symval, 32, 0)):
 				print_error("error", "link_symbols(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
 				return False;
 
-			assembly["data"][offset:offset+4] = struct.pack(">I", symval);
+			binary[offset:offset+4] = struct.pack(">I", symval >> 2);
 		elif (symtype == "abs64"):
 			if (rrasm.int_bound_check(symval, 64, 0)):
 				print_error("error", "link_symbols(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
 				return;
 
-			assembly["data"][offset:offset+8] = struct.pack(">Q", symval);
+			binary[offset:offset+8] = struct.pack(">Q", symval >> 2);
 		elif (symtype == "rel16"):
 			if (rrasm.int_bound_check(symval, 15, 1)):
 				print_error("error", "link_symbols(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
 				return False;
 
-			assembly["data"][offset:offset+2] = struct.pack(">H", symval - sym["relbase"]);
+			binary[offset:offset+2] = struct.pack(">h", (symval >> 2) - (sym["relbase"] >> 2));
 
-		assembly["data"] = bytes(assembly["data"]);
+		assembly["data"] = bytes(binary);
 		assemblies[asmid] = assembly;
+
+def find_reasonable_vmembase():
+	if (relocation_vmembase != 0x00000000):
+		return relocation_vmembase;
+
+	lowest = 0xffffffff;
+	for assembly in assemblies:
+		if (assembly["address"] < lowest):
+			lowest = assembly["address"];
+
+	if (lowest == 0xffffffff):
+		lowest = 0;
+
+	return lowest;
+
+def relocate_assembly(currentasmid, new_vmembase, assembly):
+	global unresolved;
+	off = new_vmembase - assembly["address"];
+	assembly["address"] = new_vmembase;
+	for symbol in assembly["symbols"]:
+		symbols[symbol] += off;
+
+	new_unresolved = [];
+	for unresolved in unresolved:
+		if (unresolved["asmid"] == currentasmid):
+			unresolved["address"] += off;
+			unresolved["relbase"] += off;
+		new_unresolved.append(unresolved);
+	unresolved = new_unresolved;
+
+	return assembly;
+
+def relocate_assemblies():
+	global assemblies;
+	if (preform_relocation == False):
+		return True;
+
+	new_vmembase = find_reasonable_vmembase();
+	relocated_assemblies = [];
+	asmid = 0;
+	for assembly in assemblies:
+		relocated = relocate_assembly(asmid, new_vmembase, assembly);
+		if (relocated == False):
+			return False;
+
+		relocated_assemblies.append(relocated);
+		new_vmembase += relocated["size"];
+		asmid += 1;
+
+	assemblies = relocated_assemblies;
+	return True;
 
 def deserialise_dynsym(dynsym, dynstr):
 	symoff = 0;
@@ -345,6 +429,7 @@ def deserialise_dynsym(dynsym, dynstr):
 				print_error("error", "deserialise_dynsym(): Symbol '%s' defined multiple times and not undefined" % str(symname, "utf-8"));
 				raise Exception;
 
+			assemblies[-1]["symbols"].append(symname); # FIX ME - FIXME
 			symbols[symname] = value;
 		deserialised.append({"type": "undefinedsym", "value": symname, "relbase": value});
 
@@ -376,7 +461,13 @@ def deserialise_reltable(reltable, dynsym):
 			rrasm.ELF_RRISC_REL_PC16: "rel16",
 		};
 
-		unresolved.append({"type": relobjtypes[type], "value": symname, "address": addr, "relbase": dynsym[symidx]["relbase"]});
+		unresolved.append({
+			"type": relobjtypes[type],
+			"value": symname,
+			"address": addr,
+			"relbase": dynsym[symidx]["relbase"],
+			"asmid": len(assemblies) - 1
+		});
 		off += entsize;
 
 # process binary file
@@ -466,7 +557,7 @@ def process_file(filename, binary):
 		new_section_header.append(read_generic_blob_reference(entry, binary));
 	section_header = new_section_header;
 
-	if (process_program_header(program_header, binary) == False):
+	if (process_program_header(program_header) == False):
 		print_error("error", "process_file(): Very bad program header");
 		raise Exception;
 
@@ -508,8 +599,16 @@ def process_files(files):
 			print_error("error", "process_files(): Could not process file '%s', %s" % (file, e));
 			return;
 
+	if (relocate_assemblies() == False):
+		print_error("error", "process_files(): Relocation failed, relocate_assemblies() failed");
+		return;
+
+	if (validate_assemblies() == False):
+		print_error("error", "process_files(): Bad assemblies, validate_assemblies() failed");
+		return;
+
 	if (link_symbols() == False):
-		print_error("error", "process_files(): Linker failed");
+		print_error("error", "process_files(): Linker failed, link_symbols() failed");
 		return;
 
 	if (output_format not in formats):
@@ -537,11 +636,14 @@ if __name__ == "__main__":
 	parser.add_argument("-w", "--ignore-warning", help="ignore warnings [ -w warningname ]");
 	parser.add_argument("-z", "--compress", help=rrasm.compressors_help);
 	parser.add_argument("-l", "--level", help="set compression level [ 1-9 ]");
+	parser.add_argument("-b", "--start", help="set executable memory base");
+	parser.add_argument("-r", "--relocate", help="preform relocation", action="store_true");
 	parser.add_argument("-k", "--keep-comment", help="don't strip .comment section", action="store_true");
 	parser.add_argument("-E", "--export-all", help="export all symbols by default", action="store_true");
 	parser.add_argument("-s", "--no-pie", help="use jmpabs over jrel", action="store_true");
 	args, binaries = parser.parse_known_args();
 	pie = not args.no_pie;
+	preform_relocation = args.relocate;
 	export_all = args.export_all;
 	if (args.ignore_warning != None):
 		ignored_warnings = [i.strip() for i in args.ignore_warning.split(",")];
@@ -555,4 +657,6 @@ if __name__ == "__main__":
 		set_compression_level(args.level);
 	if (args.compress != None):
 		compressor = args.compress;
+	if (args.start):
+		set_relocation_vmembase(args.start);
 	process_files(binaries);

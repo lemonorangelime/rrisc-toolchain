@@ -31,7 +31,8 @@ ELF_RRISC_REL_PC16 = 0x80;
 padded_size = 0; # size to pad to (0 means don't pad, -p)
 vmembase = 0x0000; # executable base (org || -b)
 entrypoint_name = "_start"; # entry point (-e entry_point)
-pie = True; # pie setting (--no-pie)
+pic = True; # pic setting (generate position independent code, doesn't affect linking) (--no-pic)
+pie = False; # pie setting (generate position independent executables, doesn't affect code generation) (-pie)
 output_format = "bin"; # output format (-f bin)
 output_filename = "a.out"; # output filename (-o file.txt)
 ignored_warnings = []; # ignored warnings (-w warningname)
@@ -134,6 +135,8 @@ aliases = {
 
 symbols = {}; # symbols - filled at runtime
 
+symtype = {}; # symbol types - runtime variable
+
 macros = {}; # macros - same thing
 
 unresolved = []; # unresolved symbols - same
@@ -207,17 +210,17 @@ def mov_virtual_instruction(a, b):
 
 	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
-# `jmp` instruction virtual resolver, resolve to jrel or jmp depending on pie settings
+# `jmp` instruction virtual resolver, resolve to jrel or jmp depending on pic settings
 def jmp_virtual_instruction(a):
 	if (a["type"] == "reg"):
 		return {"type": "instruction", "name": "jreg"};
 
-	if (pie):
+	if (pic):
 		return {"type": "instruction", "name": "jrel"};
 
 	return {"type": "instruction", "name": "jmp"};
 
-# `jmpabs` instruction virtual resolver, resolve to jmp always regardless of pie
+# `jmpabs` instruction virtual resolver, resolve to jmp always regardless of pic
 def jmpabs_virtual_instruction(a):
 	return {"type": "instruction", "name": "jmp"};
 
@@ -277,7 +280,7 @@ def serialise(bytesize, operand, offset):
 	if (operand["type"] == "int" or operand["type"] == "sym"):
 		if (operand["type"] == "sym"):
 			reltype = { 1: "abs8", 2: "abs16", 4: "abs32", 8: "abs64" };
-			if value not in symbols:
+			if ((symtype[value] != "const" and pie) or value not in symbols):
 				unresolved.append({"type": reltype[bytesize], "symname": value, "address": offset});
 				return b"\x00" * bytesize;
 			value = symbols[value];
@@ -307,6 +310,9 @@ def serialise(bytesize, operand, offset):
 # `org` virtual instruction, set vmembase to int operand
 def org_virtual(origin):
 	global vmembase;
+
+	if (pie):
+		print_error("warning", "org_virtual(): Setting memory start address for PIE executable, is this a mistake?", "fixed-address-pie");
 
 	origin = int_coerce(origin);
 
@@ -454,11 +460,11 @@ def elf_format_transformer(bin):
 
 	dynsym_index = 0;
 	for sym in symbols.keys():
-		if (sym not in exports and export_all == False):
+		if (symtype[sym] == "const" or sym not in exports and export_all == False):
 			continue;
-
+		
 		dynsym += struct.pack(">I", len(dynstr));
-		dynsym += struct.pack(">I", symbols[sym]);
+		dynsym += struct.pack(">I", symbols[sym] << ADDRESS_SHIFT);
 		dynsym += b"\x00\x00\x00\x00";
 		dynsym += b"\x11\x00\x00\x01";
 		
@@ -485,10 +491,10 @@ def elf_format_transformer(bin):
 		if (sym["type"] in ["abs8", "abs16", "abs32", "abs64"]):
 			dynsym += b"\x00\x00\x00\x00";
 		else:
-			dynsym += struct.pack(">i", sym["relbase"]);
+			dynsym += struct.pack(">i", sym["relbase"] << ADDRESS_SHIFT);
 		dynsym += b"\x00\x00\x00\x00";
 		dynsym += b"\x11\x00\x00\x00";
-
+	
 		absreltypes = {
 			"abs8": ELF_RRISC_REL_8,
 			"abs16": ELF_RRISC_REL_16,
@@ -499,7 +505,7 @@ def elf_format_transformer(bin):
 		};
 
 		reltype = absreltypes[sym["type"]];
-		rel += struct.pack(">I", vmembase + sym["address"]);
+		rel += struct.pack(">I", (vmembase << ADDRESS_SHIFT) + sym["address"]);
 		rel += struct.pack(">I", (dynsym_index << 8) | reltype);
 
 		dynsym_index += 1;
@@ -507,7 +513,7 @@ def elf_format_transformer(bin):
 	
 	comment = ELF_COMMENT;
 
-	real_vmembase = (vmembase << ADDRESS_SHIFT) if WORD_ADDRESSED else vmembase;
+	real_vmembase = vmembase << ADDRESS_SHIFT;
 	section_header_entry_size = 0x28;
 	section_header_entry_count = 5 if (exported_symbols > 0) else 3;
 	if (len(rel) > 0):
@@ -859,6 +865,7 @@ def decode_symbol(symbol):
 		return {"type": "error", "value": ERR_SYM_REDEFINED};
 
 	symbols[name] = value;
+	symtype[name] = "const";
 	return {"type": "null"};
 
 # deduplicate character in string
@@ -943,7 +950,7 @@ def serialise_instruction(instruction, offset):
 			operand = int_coerce(operand);
 		if (operand["type"] == "sym"):
 			symname = operand["value"];
-			if (symname in symbols):
+			if (symname in symbols and (symtype[symname] == "const" or pie == False)):
 				operand = {"type": "int", "value": symbols[symname]};
 			else:
 				operand = {"type": "int", "value": vmembase};
@@ -959,7 +966,7 @@ def serialise_instruction(instruction, offset):
 		if (operand["type"] == "mem" and "sym" in operand):
 			symname = operand["sym"];
 			value = operand["value"];
-			if (symname in symbols):
+			if ((symtype[symname] == "const" or pie == False) and symname in symbols):
 				operand = {"type": "mem", "value": value, "imm": symbols[symname]};
 			else:
 				operand = {"type": "mem", "value": value, "imm": vmembase};
@@ -1041,6 +1048,7 @@ def assemble_instruction(instruction, offset):
 			symbols[symname] = vmembase + (offset >> ADDRESS_SHIFT);
 		else:
 			symbols[symname] = vmembase + offset;
+		symtype[symname] = "relsym";
 
 		return b"";
 
@@ -1134,17 +1142,17 @@ def process_file(source):
 			print_error("error", "process_file(): Unresolved symbol extended past assembly");
 			return;
 	
-		if (symname not in symbols and symname in exports and output_format == "elf"):
-			new_unresolved.append(deferred);
-			continue; # this is fine, 
+		if (pie or symname not in symbols):
+			if (pie or (symname in exports and output_format == "elf")):
+				new_unresolved.append(deferred);
+				continue; # this is fine, 
 
-		if (symname not in symbols):
 			if (symname not in exports):
 				print_error("error", "process_file(): Unresolved symbol '%s'" % symname);
 			else:
 				print_error("error", "process_file(): Could not export symbol '%s' into %s (Did you forget to output an ELF?)" % (symname, output_format));
 			return;
-
+	
 		symval = symbols[symname];
 		if (symtype == "abs8"):
 			if (int_bound_check(symval, 8, 0)):
@@ -1175,8 +1183,8 @@ def process_file(source):
 				print_error("error", "process_file(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
 				return;
 
-			assembly[addr:addr+2] = struct.pack(">H", symbols[symname] - deferred["relbase"]);
-	
+			assembly[addr:addr+2] = struct.pack(">h", symbols[symname] - deferred["relbase"]);
+
 	unresolved = new_unresolved;
 
 	assembly = bytes(assembly);
@@ -1213,7 +1221,10 @@ def process_file(source):
 def set_vmembase(origin):
 	global vmembase;
 	decoded = decode_int_helper(origin);
-	if (decoded == False):
+	if (pie):
+		print_error("warning", "set_vmembase(): Setting memory start address for PIE executable, is this a mistake?", "fixed-address-pie");
+
+	if (type(decoded) == bool and decoded == False):
 		print_error("error", "set_vmembase(): Could not set origin, bad integer");
 		exit();
 
@@ -1223,7 +1234,7 @@ def set_vmembase(origin):
 def set_pad_size(size):
 	global padded_size;
 	decoded = decode_int_helper(size);
-	if (decoded == False):
+	if (type(decoded) == bool and decoded == False):
 		print_error("error", "set_pad_size(): Could not set pad size, bad integer");
 		exit();
 
@@ -1233,7 +1244,7 @@ def set_pad_size(size):
 def set_compression_level(level):
 	global compression_level;
 	decoded = decode_int_helper(level);
-	if (decoded == False):
+	if (type(decoded) == bool and decoded == False):
 		print_error("error", "set_compression_level(): Could not set compression level, bad integer");
 		exit();
 
@@ -1250,11 +1261,15 @@ if __name__ == "__main__":
 	parser.add_argument("-p", "--pad-size", help="pad ASSEMBLY to size (not output file)");
 	parser.add_argument("-z", "--compress", help=compressors_help);
 	parser.add_argument("-l", "--level", help="set compression level [ 1-9 ]");
-	parser.add_argument("-E", "--export-all", help="export all symbols by default", action="store_true");
-	parser.add_argument("-s", "--no-pie", help="use jmpabs over jrel", action="store_true");
+	parser.add_argument("-E", "--export-all", help="export all symbols by default (set by --pie)", action="store_true");
+	parser.add_argument("-s", "--no-pic", help="use jmpabs over jrel code (affects code generation)", action="store_true");
+	parser.add_argument("-r", "--pie", help="generate position independent executable (affects linking)", action="store_true");
 	args = parser.parse_args();
-	pie = not args.no_pie;
+	pic = not args.no_pic;
 	export_all = args.export_all;
+	if (args.pie):
+		export_all = True;
+		pie = True;
 	if (args.origin != None):
 		set_vmembase(args.origin);
 	if (args.entry_point != None):

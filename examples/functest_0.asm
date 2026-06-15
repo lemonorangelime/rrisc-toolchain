@@ -1,5 +1,3 @@
-org 0x0000
-
 nop ; entry point cant be 0
 
 extern functest_helper
