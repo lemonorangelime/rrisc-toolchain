@@ -91,8 +91,10 @@ encodings = {
 	"pop":	{"opcode": 0x1d, "args": 1, "encoding": "d"},
 	"call":	{"opcode": 0x1e, "args": 1, "encoding": "r"},
 	"ret":	{"opcode": 0x1f, "args": 0, "encoding": ""},
+
 	"mulu":	{"opcode": 0x43, "args": 3, "encoding": "dab"},
 	"mull":	{"opcode": 0x44, "args": 3, "encoding": "dab"},
+
 	# ...
 	"iret":	{"opcode": 0x22, "args": 0, "encoding": ""},
 	"ldio":	{"opcode": 0x23, "args": 2, "encoding": "da"},
@@ -306,7 +308,7 @@ def serialise(bytesize, operand, offset):
 	if (operand["type"] == "int" or operand["type"] == "sym"):
 		if (operand["type"] == "sym"):
 			reltype = { 1: "abs8", 2: "abs16", 4: "abs32", 8: "abs64" };
-			if ((symtype[value] != "const" and pie) or value not in symbols):
+			if (value not in symbols or (symtype[value] != "const" and pie)):
 				unresolved.append({"type": reltype[bytesize], "symname": value, "address": offset});
 				return b"\x00" * bytesize;
 			value = symbols[value];
@@ -1002,7 +1004,7 @@ def serialise_instruction(instruction, offset):
 		if (operand["type"] == "mem" and "sym" in operand):
 			symname = operand["sym"];
 			value = operand["value"];
-			if ((symtype[symname] == "const" or pie == False) and symname in symbols):
+			if (symname in symbols and (symtype[symname] == "const" or pie == False)):
 				operand = {"type": "mem", "value": value, "imm": symbols[symname]};
 			else:
 				operand = {"type": "mem", "value": value, "imm": vmembase};
