@@ -4,7 +4,10 @@ import struct;
 import argparse;
 import importlib.machinery;
 import pathlib;
-rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/../rrasm/rrasm").load_module();
+try:
+	rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/../rrasm/rrasm").load_module();
+except:
+	rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/rrasm").load_module();
 
 ELF_SECTION_TYPE_NULL = 0x00000000;
 ELF_SECTION_TYPE_PROGBIT = 0x00000001;

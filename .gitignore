@@ -8,3 +8,4 @@ tools/rrinterp/
 *.vmd
 *.roadrun
 *.gtkw
+*.o
