@@ -232,6 +232,19 @@ def out_virtual_instruction(a, b):
 def in_virtual_instruction(a, b):
 	return {"type": "instruction", "name": "ldio"};
 
+def incbin_virtual_instruction(a):
+	if (a["type"] != "str"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	try:
+		f = open(a["value"], "rb");
+		b = f.read();
+		f.close();
+		return {"type": "data", "value": b};
+	except Exception as e:
+		print_error("warning", "Could not open file '%s'" % a["value"]);
+		return {"type": "error", "value": ERR_RESOLUTION_FAILED};
+
 # generic register, #imm virtual resolver
 def r_imm_virtual_resolver(a, b, c, name):
 	if (c == False):
@@ -373,6 +386,7 @@ virtual = {
 	"jmpabs": {"args": [1], "resolve": jmpabs_virtual_instruction},
 	"out": {"args": [2], "resolve": out_virtual_instruction},
 	"in": {"args": [2], "resolve": in_virtual_instruction},
+	"incbin": {"args": [1], "resolve": incbin_virtual_instruction},
 	"db": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 1, *operands)},
 	"dw": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 2, *operands)},
 	"dd": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 4, *operands)},
