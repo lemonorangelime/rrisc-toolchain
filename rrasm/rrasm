@@ -10,11 +10,11 @@ import shlex;
 
 WORD_SIZE = 4; # power of 2
 WORD_ADDRESSED = True; # for example: (with 4 byte words) word 2 starts at `0x00001` rather than `0x00004`
-ADDRESS_SHIFT = len(bin(WORD_SIZE - 1)[2:]); # change WORD_SIZE instead
+ADDRESS_SHIFT = len(bin(WORD_SIZE - 1)[2:]) if WORD_ADDRESSED else 0; # change WORD_SIZE and WORD_ADDRESSED instead
 
 ### transformer constants
-FPGASYNTH_WORD_SIZE = 4;
-MI_WORD_SIZE = 4;
+FPGASYNTH_WORD_SIZE = WORD_SIZE;
+MI_WORD_SIZE = WORD_SIZE;
 ELF_MACHINE_TYPE = 0x23; # our (unrecognised, non-standard) machine type
 ELF_OBJ_TYPE = 0x00001; # our very recognised and stardard object type (unlinked relocatable - like nasm)
 ELF_OSABI_TYPE = 0x80; # out (unrecognised, non-standard) OS/ABI type
@@ -417,7 +417,7 @@ def fpgasynth_wordiser_helper(bin, wordsize):
 def mi_generate_header(bin, wordsize):
 	words = splitn(bin, wordsize);
 	header = b"#File_format=Hex\n";
-	header += b"#Address_depth=" + bytes(str(len(words) * wordsize), "utf-8") + b"\n";
+	header += b"#Address_depth=" + bytes(str(len(words)), "utf-8") + b"\n";
 	header += b"#Data_width=" + bytes(str(wordsize * 8), "utf-8") + b"\n";
 	return header;
 
