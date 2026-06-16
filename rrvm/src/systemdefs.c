@@ -5,22 +5,41 @@ sysdef_t machines[] = (sysdef_t[]) {
 	{	.name = "rrisc",
 		.ini =	"[cpu]\n"
 			"name=rrisc\n"
-			"clock-speed=2\n" // 2hz
+			"clock-speed=100\n" // hz
 
 			"[buses]\n"
 			"io-count=1\n"
 			"mem-count=1\n"
-			"mem-size=65536\n"	},
+			"mem-size=65536\n"
+		
+			"[devices]\n"
+			"attached=iotrap,vga\n"		},
+
+	{	.name = "rrisc-bare",
+		.ini =	"[cpu]\n"
+			"name=rrisc\n"
+			"clock-speed=100\n" // hz
+
+			"[buses]\n"
+			"io-count=1\n"
+			"mem-count=1\n"
+			"mem-size=65536\n"
+		
+			"[devices]\n"
+			"attached=iotrap,vga\n"		},
 
 	{	.name = "rrisc-tiny",
 		.ini =	"[cpu]\n"
 			"name=rrisc\n"
-			"clock-speed=2\n" // 2hz
+			"clock-speed=100\n" // hz
 
 			"[buses]\n"
 			"io-count=1\n"
 			"mem-count=1\n"
-			"mem-size=1024\n"	}
+			"mem-size=1024\n"
+		
+			"[devices]\n"
+			"attached=vga\n"		}
 };
 
 sysdef_t * lookup_system_def(char * search_name) {

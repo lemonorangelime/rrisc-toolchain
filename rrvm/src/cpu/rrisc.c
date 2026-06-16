@@ -92,7 +92,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			}
 			break;
 		case OP_BLT:
-			if (RREGISTER(instruction.dest) < RREGISTER(instruction.reg_a)) { // endian problem?
+			if (RREGISTER(instruction.dest) > RREGISTER(instruction.reg_a)) { // endian problem?
 				pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
 			}
 			break;
@@ -108,7 +108,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			}
 			break;
 		case OP_BGT:
-			if (RREGISTER(instruction.dest) > RREGISTER(instruction.reg_a)) {
+			if (RREGISTER(instruction.dest) < RREGISTER(instruction.reg_a)) {
 				pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm));
 			}
 			break;
@@ -138,6 +138,13 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			pc_next = ntohl(pc_next);
 			sp_next = rrisc_cpu->registers.sp + 1;
 			break;
+
+		case OP_MULL: REGISTER(instruction.dest) = htonl(RREGISTER(instruction.reg_a) * RREGISTER(instruction.reg_b)); break;
+			case OP_MULH: {
+			uint64_t result64 = RREGISTER(instruction.reg_a) * RREGISTER(instruction.reg_b);
+			uint32_t result = (uint32_t) (result64 >> 32llu);
+			REGISTER(instruction.dest) = htonl(result); break;
+		}
 
 		case OP_IRET:
 			BUS_READ(rrisc_cpu->mem_bus, pc_next, rrisc_cpu->registers.sp, 0);
@@ -172,10 +179,12 @@ cpu_t * rrisc_cpu_create() {
 	cpu->mem_bus = NULL;
 	cpu->io_bus = NULL;
 
-	cpu_port_t * port_list = malloc(sizeof(cpu_port_t) * 2);
-	port_list[0].type = CPU_PORT_MEMORY;
+	memset(&cpu->registers, 0, sizeof(cpu->registers));
+
+	bus_port_t * port_list = malloc(sizeof(bus_port_t) * 2);
+	port_list[0].type = BUS_MEMORY;
 	port_list[0].bus = &cpu->mem_bus;
-	port_list[1].type = CPU_PORT_IO;
+	port_list[1].type = BUS_IO;
 	port_list[1].bus = &cpu->io_bus;
 	cpu->cpu.ports = port_list;
 

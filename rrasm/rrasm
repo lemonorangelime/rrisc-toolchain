@@ -147,17 +147,17 @@ unresolved = []; # unresolved symbols - same
 
 exports = []; # exports - same
 
-def int_coerce(s, signed=False):
+def int_coerce(s, signed=False, encoding="utf-8"):
 	if (type(s) == int):
 		return {"type": "int", "value": s};
 	if (type(s) == str):
-		return {"type": "int", "value": int.from_bytes(bytes(s, "utf-8"), byteorder="big", signed=signed)};
+		return {"type": "int", "value": int.from_bytes(bytes(s, encoding), byteorder="big", signed=signed)};
 	if (type(s) == bytes):
 		return {"type": "int", "value": int.from_bytes(s, byteorder="big", signed=signed)};
 	if (type(s) == dict and "type" in s):
 		if (s["type"] != "str"):
 			return s;
-		return {"type": "int", "value": int.from_bytes(bytes(s["value"], "utf-8"), byteorder="big", signed=signed)};
+		return {"type": "int", "value": int.from_bytes(bytes(s["value"], encoding), byteorder="big", signed=signed)};
 	return s;
 
 def int_forcecast(s, signed=False):

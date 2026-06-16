@@ -5,13 +5,21 @@
 
 
 typedef struct bus bus_t;
-typedef void (* bus_op_t)(bus_t * bus, uint32_t address, void * buffer, size_t bytes);
+typedef int (* bus_op_t)(bus_t * bus, uint32_t address, void * buffer, size_t bytes);
+typedef int (* bus_child_op_t)(void * priv, bus_t * bus, uint32_t address, void * buffer, size_t bytes);
 typedef void (* bus_free_t)(bus_t * bus);
 
 typedef enum {
 	BUS_MEMORY,
 	BUS_IO,
 } bus_type_t;
+
+typedef struct bus_port {
+	bus_type_t type;
+	union {
+		bus_t ** bus;
+	};
+} bus_port_t;
 
 typedef struct bus {
 	bus_type_t type;

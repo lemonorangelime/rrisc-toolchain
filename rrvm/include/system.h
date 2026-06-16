@@ -2,11 +2,14 @@
 
 #include <cpu.h>
 #include <bus.h>
+#include <device.h>
 
 typedef struct {
 	cpu_t * cpu;
 	bus_t ** buses;
+	device_t ** devices;
 	int bus_count;
+	int device_count;
 	int running;
 } system_t;
 

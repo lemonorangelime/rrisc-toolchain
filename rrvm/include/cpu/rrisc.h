@@ -69,6 +69,10 @@ enum {
 	OP_POP  = 0x1d, // pop from stack
 	OP_CALL = 0x1e,
 	OP_RET  = 0x1f,
+
+	OP_MULH = 0x43,
+	OP_MULL = 0x44,
+
 	OP_IRET = 0x22, // retrun from interrupt
 	OP_LDIO = 0x23, // load from I/O bus
 	OP_STIO = 0x24, // store to I/O bus

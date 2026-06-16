@@ -25,6 +25,10 @@ void args_load_callback(void * priv, args_option_t * option, char * arg) {
 	option_memory_load = arg;
 }
 
+void args_device_callback(void * priv, args_option_t * option, char * argv) {
+	
+}
+
 void args_trace_callback(void * priv, args_option_t * option, int present) {
 	if (!present) return;
 	option_trace = 1;
@@ -44,6 +48,7 @@ int parse_args(int argc, char * argv[]) {
 		{'s', "sysdef",  1, TYPE_STRING, 0, args_sysdef_callback,  .help="read system definition from file"},
 		{'o', "option",  1, TYPE_STRING, 0, args_option_callback,  .help="system defintion override [-o option=value ]"},
 		{'e', "load",    1, TYPE_STRING, 0, args_load_callback,    .help="load binary file to memory [ -e file || -e 1,file ]"},
+		{'d', "device",  1, TYPE_STRING, 0, args_device_callback,  .help="attach device [ -d device ]"},
 		{0,   NULL,      0, TYPE_NULL,   0, NULL,                  .help=""},
 		{'t', "trace",   0, TYPE_BOOL,   0, args_trace_callback,   .help="enable tracing"},
 	};

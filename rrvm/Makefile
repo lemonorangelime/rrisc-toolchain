@@ -1,7 +1,7 @@
 PREFIX?=/usr/local/bin/
 
 CC:=gcc
-CCFLAGS:=-Iinclude -Wl,"-Tlink.ld"
+CCFLAGS:=-Iinclude -Wl,"-Tlink.ld" -lSDL2
 
 SRC:=$(shell find src/ -name '*.c')
 BIN:=rrvm
@@ -12,7 +12,7 @@ default: $(BIN)
 $(BIN): $(SRC)
 	$(CC) $(CCFLAGS) $^ -o $@
 clean:
-	rm $(BIN)
+	rm -f $(BIN)
 
 install: $(BIN)
 	cp ${BIN} ${PREFIX}/${PATHNAME}

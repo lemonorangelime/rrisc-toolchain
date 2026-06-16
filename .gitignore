@@ -1,6 +1,9 @@
+RoadRISC-core
+__pycache__/
 __pycache__
-tools/rrvm/rrvm
-tools/rrinterp/
+# don't commit that stupid binary
+rrvm/rrvm
+rrinterp/
 *.bin
 *.mi
 *.hex

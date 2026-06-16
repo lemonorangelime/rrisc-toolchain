@@ -3,18 +3,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-void io_bus_read_handler(bus_t * bus, uint32_t address, void * buffer, size_t bytes) {
+int io_bus_read_handler(bus_t * bus, uint32_t address, void * buffer, size_t bytes) {
 	io_bus_t * io_bus = (io_bus_t *) bus;
 	for (int i = 0; i < io_bus->read_children; i++) {
-		io_bus->child_read[i](bus, address, buffer, bytes);
+		io_bus->child_read[i](io_bus->child_read_privates[i], bus, address, buffer, bytes);
 	}
+	return bytes;
 }
 
-void io_bus_write_handler(bus_t * bus, uint32_t address, void * buffer, size_t bytes) {
+int io_bus_write_handler(bus_t * bus, uint32_t address, void * buffer, size_t bytes) {
 	io_bus_t * io_bus = (io_bus_t *) bus;
 	for (int i = 0; i < io_bus->write_children; i++) {
-		io_bus->child_write[i](bus, address, buffer, bytes);
+		io_bus->child_write[i](io_bus->child_write_privates[i], bus, address, buffer, bytes);
 	}
+	return bytes;
 }
 
 void io_bus_free(bus_t * bus) {
@@ -35,20 +37,22 @@ bus_t * io_bus_create() {
 	return (bus_t *) bus;
 }
 
-int io_bus_attach_read(bus_t * bus, bus_op_t read) {
+int io_bus_attach_read(bus_t * bus, bus_child_op_t read, void * priv) {
 	io_bus_t * io_bus = (io_bus_t *) bus;
 	if (io_bus->read_children == IO_BUS_MAX_DEVICES) {
 		return -1;
 	}
+	io_bus->child_read_privates[io_bus->read_children] = priv;
 	io_bus->child_read[io_bus->read_children++] = read;
 	return 0;
 }
 
-int io_bus_attach_write(bus_t * bus, bus_op_t write) {
+int io_bus_attach_write(bus_t * bus, bus_child_op_t write, void * priv) {
 	io_bus_t * io_bus = (io_bus_t *) bus;
 	if (io_bus->write_children == IO_BUS_MAX_DEVICES) {
 		return -1;
 	}
+	io_bus->child_read_privates[io_bus->read_children] = priv;
 	io_bus->child_write[io_bus->write_children++] = write;
 	return 0;
 }

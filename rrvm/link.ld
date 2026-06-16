@@ -23,6 +23,11 @@ SECTIONS
 	*(.cpuinterfaces)
 	cpu_interfaces_end = .;
   }
+  .devinterfaces  : {
+	dev_interfaces_start = .;
+	*(.devinterfaces)
+	dev_interfaces_end = .;
+  }
   .rela.dyn       :
     {
       *(.rela.init)
