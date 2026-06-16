@@ -285,14 +285,19 @@ def rr_imm_virtual_resolver(a, b, c, rr, imm):
 	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
 def mul_virtual_resolver(a, b, c, d, which="mull"):
+	if (not c):
+		c = b;
+		b = a;
+
 	if (d):
+		return [
+			{"type": "instruction", "name": "mull", "operands": [a, c, d]},
+			{"type": "instruction", "name": "mulu", "operands": [b, c, d]},
+		];
 		print_error("error", "mul_virtual_resolver(): 4 arguments, UNIMPLEMENTED, FIXME");
 		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
-	if (c):
-		return {"type": "instruction", "name": which, "operands": [a, b, c]};
-
-	return {"type": "instruction", "name": which, "operands": [a, a, b]};
+	return {"type": "instruction", "name": which, "operands": [a, b, c]};
 
 
 # generic operand serialiser, serialises an operand of type to bytesize-bytes
@@ -937,6 +942,12 @@ def decode_instruction(instruction, offset):
 
 			splitpoint = instruction.index(' ');
 			insname = instruction[:splitpoint].strip().lower();
+			if (insname[-1] == ':'):
+				decodedsym = decode_symbol(insname.replace(' ', ''));
+				decodedins = decode_instruction(instruction[instruction.index(":") + 1:], offset);
+				if (type(decodedins) == list):
+					return [decodedsym, *decodedins];
+				return [decodedsym, decodedins];
 
 			oplist = instruction[splitpoint+1:];
 			operands = oplist.split(',');
@@ -955,16 +966,23 @@ def decode_instruction(instruction, offset):
 			decoded_operands.append(decoded);
 
 		resolved = resolve_final_instruction(insname, decoded_operands, offset);
-		if (resolved["type"] in ["data", "error", "null"]):
-			return resolved;
+		resolved = [resolved] if type(resolved) != list else resolved;
+		resolved_list = [];
+		for ins in resolved:
+			if (ins["type"] in ["data", "error", "null"]):
+				resolved_list.append(ins);
+				continue;
 
-		if (resolved["type"] != "instruction"):
-			return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+			if (ins["type"] != "instruction"):
+				return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
 
-		if ("operands" in resolved):
-			decoded_operands = resolved["operands"];
+			local_operands = decoded_operands;
+			if ("operands" in ins):
+				local_operands = ins["operands"];
 
-		return {"type": "instruction", "name": resolved["name"], "operands": decoded_operands};
+			resolved_list.append({"type": "instruction", "name": ins["name"], "operands": local_operands});
+
+		return resolved_list;
 	except Exception as e:
 		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
 
@@ -1067,14 +1085,12 @@ def serialise_instruction(instruction, offset):
 
 	return bytes(serialised);
 
-# assemble instruction at file offset
-def assemble_instruction(instruction, offset):
-	decoded = decode_instruction(instruction, offset);
+def handle_decoded_instruction(decoded, offset):
 	if (decoded["type"] == "error"):
 		return decoded;
 
 	if (decoded["type"] == "data"):
-		return decoded["value"];
+		return decoded;
 
 	if (decoded["type"] == "relsym"):
 		symname = decoded["value"];
@@ -1087,14 +1103,50 @@ def assemble_instruction(instruction, offset):
 		else:
 			symbols[symname] = vmembase + offset;
 		symtype[symname] = "relsym";
-
-		return b"";
+		return {"type": "null"};
 
 	if (decoded["type"] == "null"):
-		return b"";
+		return decoded;
 
 	if (decoded["type"] != "instruction"):
 		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+	return decoded;
+
+# assemble instruction at file offset
+def assemble_instruction(instruction, offset):
+	decoded = decode_instruction(instruction, offset);
+	if (type(decoded) == list):
+		final_assembly = b"";
+		for obj in decoded:
+			obj = handle_decoded_instruction(obj, offset);
+			if (obj["type"] == "error"):
+				return obj;
+
+			if (obj["type"] == "data"):
+				final_assembly += obj["value"];
+				continue;
+
+			if (obj["type"] == "null"):
+				continue;
+
+			assembled = serialise_instruction(obj, offset + len(final_assembly));
+			if (type(assembled) != bytes):
+				return assembled;
+
+			final_assembly += assembled;
+
+		return final_assembly;
+
+	decoded = handle_decoded_instruction(decoded, offset);
+	if (decoded["type"] == "error"):
+		return decoded;
+
+	if (decoded["type"] == "data"):
+		return decoded["value"];
+
+	if (decoded["type"] == "null"):
+		return b"";
 
 	return serialise_instruction(decoded, offset);
 
