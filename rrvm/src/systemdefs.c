@@ -5,12 +5,11 @@ sysdef_t machines[] = (sysdef_t[]) {
 	{	.name = "rrisc",
 		.ini =	"[cpu]\n"
 			"name=rrisc\n"
-			"clock-speed=100\n" // hz
-
+			"clock-speed=50000000\n" // hz
 			"[buses]\n"
 			"io-count=1\n"
 			"mem-count=1\n"
-			"mem-size=65536\n"
+			"mem-size=262144\n"
 		
 			"[devices]\n"
 			"attached=iotrap,vga\n"		},
@@ -18,7 +17,7 @@ sysdef_t machines[] = (sysdef_t[]) {
 	{	.name = "rrisc-bare",
 		.ini =	"[cpu]\n"
 			"name=rrisc\n"
-			"clock-speed=100\n" // hz
+			"clock-speed=50000000\n" // hz
 
 			"[buses]\n"
 			"io-count=1\n"
@@ -31,7 +30,7 @@ sysdef_t machines[] = (sysdef_t[]) {
 	{	.name = "rrisc-tiny",
 		.ini =	"[cpu]\n"
 			"name=rrisc\n"
-			"clock-speed=100\n" // hz
+			"clock-speed=50000000\n" // hz
 
 			"[buses]\n"
 			"io-count=1\n"

@@ -97,6 +97,8 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			}
 			break;
 
+		case OP_JAL:
+			REGISTER(instruction.dest) = htonl(pc_next);
 		case OP_JMP: pc_next = IMM(instruction.imm); break;
 		case OP_JREL: pc_next = rrisc_cpu->registers.pc + ((int16_t) IMM(instruction.imm)); break;
 
@@ -155,6 +157,8 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 		case OP_STIO: BUS_WRITE(rrisc_cpu->io_bus, RREGISTER(instruction.dest), REGISTER(instruction.reg_a), 0); break;
 
 		case OP_JREG: pc_next = RREGISTER(instruction.dest);
+
+		case OP_HALT: pc_next = rrisc_cpu->registers.pc; break;
 
 		default:
 			printf("unimplemented or invalid opcode\n");

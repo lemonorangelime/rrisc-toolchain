@@ -117,8 +117,8 @@ system_t * system_create() {
 	if (total_buses) {
 		system->buses = malloc(sizeof(bus_t *) * total_buses);
 	}
-	system->devices = malloc(sizeof(device_t *) * 1);
-	system->device_count = 1;
+	system->device_count = 2;
+	system->devices = malloc(sizeof(device_t *) * system->device_count);
 	system->bus_count = total_buses;
 	system->running = 0;
 
@@ -135,10 +135,13 @@ system_t * system_create() {
 	}
 
 	// create and attach devices...
-	// for testing: hardcode vga controller
-	device_interface_t * interface = lookup_dev_interface("vga");
-	device_t * vga = interface->create();
+	// for testing: hardcode vga controller and uart
+	device_interface_t * vga_interface = lookup_dev_interface("vga");
+	device_interface_t * uart_interface = lookup_dev_interface("uart");
+	device_t * vga = vga_interface->create();
+	device_t * uart = uart_interface->create();
 	system->devices[0] = vga;
+	system->devices[1] = uart;
 	if (system_attach_buses(system) != 0) {
 		printf("Could not attach buses.\n");
 		system_free(system);
