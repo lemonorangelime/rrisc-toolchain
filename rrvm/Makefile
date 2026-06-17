@@ -1,7 +1,7 @@
 PREFIX?=/usr/local/bin/
 
 CC:=gcc
-CCFLAGS:=-Iinclude -Wl,"-Tlink.ld" -lSDL2
+CCFLAGS:=-Iinclude -Wl,"-Tlink.ld" -lSDL2 -Wno-shift-overflow
 
 SRC:=$(shell find src/ -name '*.c')
 BIN:=rrvm

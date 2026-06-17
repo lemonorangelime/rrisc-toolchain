@@ -5,13 +5,19 @@ VGA_FB_END equ 0x4000
 VGA_WIDTH equ 320
 VGA_STRIDE equ 40
 
-; UART not implemented yet, change these as needed later
-UART_RX equ 0x1a7d
-UART_TX equ 0x1a7e
-UART_STAT equ 0x1a7f
+UART_RX equ 0xfff1
+UART_TX equ 0xfff2
+UART_STAT equ 0xfff0
 
 UART_STAT_RX_READY equ 0b00000001
 UART_STAT_TX_READY equ 0b00000010
+
+VGA_PALETTE_BASE equ 0x1a70
+
+RRISC_VERSION_ADDR_HIGH equ 0x0000
+RRISC_VERSION_ADDR_LOW equ 0xffff
+RRISC_IDENTIFIER_ADDR_HIGH equ 0x0000
+RRISC_IDENTIFIER_ADDR_LOW equ 0xfffe
 
 STACK_TOP equ 0x1600
 
@@ -25,21 +31,86 @@ bios_func_table:
 	dd locate_glyph
 	dd find_pixel
 	dd fill_screen
+	dd print_str
+	dd print_str32
 
-bios_boot_message: dd "RoadRisc-32 CPU BIOS"
+bios_boot_message: db "RoadRisc-32 PC BIOS   V 1.0   2026/6/17", 0x00
+align 4
+bios_copyright_message: db "(C) Lemon 2026", 0x00
+align 4
+bios_memcheck_mesage: db "Kb Okay", 0x00
+align 4
+bios_cpuver_mesage: db "CPU Ver", 0x00
+align 4
+bios_uart_message: db "Waiting for UART packets...", 0x00
+align 4
+bios_comptime_message: db "Assemble date ", ASSEMBLE_TIME, 0x00
+align 4
 
+extern bios_entry
 bios_entry:
 	mov r0, STACK_TOP
 	mov sp, r0
 
-	mov r0, 0x2
+	mov r0, VGA_PALETTE_BASE
+	mov r1, 0x0080
+	mov [r0], r1
+
+	call probe_memory
+	mov r8, r0
+
+	mov r0, 0x0
 	call fill_screen
 
 	xor r0, r0
 	xor r1, r1
 	mov r2, bios_boot_message
-	mov r3, 20
-	call draw_str32
+	call print_str
+
+	xor r0, r0
+	mov r1, 8
+	mov r2, bios_copyright_message
+	call print_str
+
+	mov r2, r8
+	xor r0, r0
+	mov r1, 40
+	shl r2, 2
+	sub r2, 10752
+	call print_number
+	add r0, 8
+	mov r2, bios_memcheck_mesage
+	call print_str
+
+	xor r0, r0
+	mov r1, 232
+	mov r2, bios_cpuver_mesage
+	call print_str
+	add r0, 8
+	mov r8, RRISC_VERSION_ADDR_HIGH
+	shl r8, 16
+	or r8, RRISC_VERSION_ADDR_LOW
+	mov r8, [r8]
+	shr r2, r8, 16
+	and r2, 0x7fff
+	call print_number
+	mov r4, r0
+	mov r2, '.'
+	call draw_glyph
+	mov r0, r4
+	add r0, 8
+	and r2, r8, 0xffff
+	call print_number
+
+	xor r0, r0
+	mov r1, 224
+	mov r2, bios_comptime_message
+	call print_str
+
+	xor r0, r0
+	mov r1, 80
+	mov r2, bios_uart_message
+	call print_str
 
 	mov r0, UART_STAT
 	mov r1, UART_RX
@@ -99,11 +170,15 @@ bios_entry.load_program.enter.jmptable:
 
 bios_entry.load_program.enter.bin:
 	xor r0, r0
+	mov r1, 0x1a70
+	mov [r1], r0
 	call fill_screen
 	jmpabs 0x0000
 
 bios_entry.load_program.enter.roadrun:
 	xor r0, r0
+	mov r1, 0x1a70
+	mov [r1], r0
 	call fill_screen
 	mov r3, [r3 + 3] ; push header->entry_point
 	shr r3, 2
@@ -141,6 +216,28 @@ bios_entry.load_program.enter.roadrun.relocate_forward:
 
 
 
+probe_memory: ; probe_memory()
+	mov r0, 0x4000
+probe_memory.loop:
+	mov r13, 0x5555
+	shl r13, 16
+	or r13, 0x5555
+	mov r14, 0xaaaa
+	shl r14, 16
+	or r14, 0xaaaa
+	mov [r0], r13
+	mov [r0 + 1], r14
+	mov r15, [r0]
+	bneq r13, r15, probe_memory.exit
+	mov r15, [r0 + 1]
+	bneq r14, r15, probe_memory.exit
+	add r0, 0x1000
+	jmp probe_memory.loop
+probe_memory.exit:
+	ret
+	
+
+
 fill_screen: ; fill_screen(colour) fill screen
 	mov r15, 0x1111
 	shl r15, 16
@@ -157,13 +254,104 @@ fill_screen.loop:
 
 
 
-draw_str32: ; draw_str32(x, y, s, len)
+print_number: ; print_number(x, y, n) - print number
+	push r2
+	push r3
+	xor r3, r3
+print_number.print_digit:
+	shr r13, r2, 1
+	shr r14, r2, 2
+	add r13, r14
+	shr r14, r13, 4
+	add r13, r14
+	shr r14, r13, 8
+	add r13, r14
+	shr r14, r13, 16
+	add r13, r14
+	shr r13, 3
+	shl r15, r13, 2
+	add r15, r13
+	shl r15, 1
+	sub r15, r2, r15
+	add r15, 6
+	shr r15, 4
+	add r13, r15
+
+	mov r15, 10
+	mul r14, r13, r15
+	sub r14, r2, r14
+	add r3, 1
+	push r14
+	xor r15, r15
+	mov r2, r13
+	bneq r13, r15, print_number.print_digit
+
+print_number.print_loop:
+	pop r2
 	push r0
+	add r2, '0'
+	call draw_glyph
+	pop r0
+	add r0, 8
+	sub r3, 1
+	xor r15, r15
+	bneq r3, r15, print_number.print_loop
+
+	pop r3
+	pop r2
+	ret
+
+
+
+print_str: ; print_str(x, y, s)
+	push r5
+	push r4
+	push r3
+	mov r13, r2
+	xor r15, r15
+
+print_str.readloop:
+	mov r14, [r13]
+
+	xor r3, r3
+	sub r3, 8
+	mov r4, 24
+print_str.shiftloop:
+	shr r5, r14, r4
+	and r5, 0xff
+	beq r5, r15, print_str.exit
+	sub r4, 8
+
+	push r0
+	push r13
+	push r14
+	push r15
+	mov r2, r5
+	call draw_glyph
+	pop r15
+	pop r14
+	pop r13
+	pop r0
+	add r0, 8
+
+	bneq r3, r4, print_str.shiftloop
+	add r13, 1
+	jmp print_str.readloop
+
+print_str.exit:
+	pop r3
+	pop r4
+	pop r5
+	ret
+
+
+
+print_str32: ; print_str32(x, y, s, len)
 	push r2
 
 	add r13, r2, r3
 	mov r14, r2
-draw_str32.loop:
+print_str32.loop:
 	mov r2, [r14]
 	add r14, 1
 
@@ -176,10 +364,9 @@ draw_str32.loop:
 	pop r0
 
 	add r0, 8
-	blt r13, r14, draw_str32.loop	
+	blt r13, r14, print_str32.loop	
 
 	pop r2
-	pop r0
 	ret
 
 
@@ -335,7 +522,7 @@ locate_glyph: ; locate_glyph(c) - find glyph in font table, return null if not f
 
 	mov r15, r0
 	mov r13, font_table_end
-	mov r0, font_table
+	mov r0, font_table_flat_end
 locate_glyph.readloop:
 	mov r1, [r0]
 	shr r14, r1, 16
@@ -532,13 +719,13 @@ db 0b10000000
 db 0b00000000
 
 dw 0x0030, 0x0000
-db 0b01111100
-db 0b11000110
-db 0b11001110
-db 0b11011110
-db 0b11110110
-db 0b11100110
-db 0b01111100
+db 0b01111000
+db 0b11001100
+db 0b11011100
+db 0b11111100
+db 0b11101100
+db 0b11001100
+db 0b01111000
 db 0b00000000
 
 dw 0x0031, 0x0000
@@ -1320,6 +1507,8 @@ db 0b00000000
 db 0b00000000
 db 0b00000000
 db 0b00000000
+
+font_table_flat_end:
 
 dw 0x0393, 0x0000
 db 0b11111110

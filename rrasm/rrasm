@@ -5,6 +5,7 @@ import argparse;
 import lzma;
 import gzip;
 import shlex;
+import datetime;
 
 ## constants
 
@@ -140,7 +141,9 @@ symbols = {}; # symbols - filled at runtime
 
 symtype = {}; # symbol types - runtime variable
 
-macros = {}; # macros - same thing
+macros = {
+	"ASSEMBLE_TIME": {"type": "str", "value": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")}
+};
 
 unresolved = []; # unresolved symbols - same
 
@@ -337,6 +340,14 @@ def serialise(bytesize, operand, offset):
 
 	return {"type": "error", "value": ERR_SERIALISATION_FAILED};
 
+def align_virtual(offset, alignment):
+	if (alignment["type"] != "int"):
+		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
+
+	alignment = int_coerce(alignment);
+	wanted_alignment = alignment["value"];
+	return {"type": "data", "value": b"\x00" * (wanted_alignment - (offset % wanted_alignment))};
+
 # `org` virtual instruction, set vmembase to int operand
 def org_virtual(origin):
 	global vmembase;
@@ -412,6 +423,8 @@ virtual = {
 	"out": {"args": [2], "resolve": out_virtual_instruction},
 	"in": {"args": [2], "resolve": in_virtual_instruction},
 	"bgt": {"args": [3], "resolve": bgt_virtual_instruction},
+
+	"align": {"args": [1], "wantsoffset": True, "resolve": lambda offset, alignment: align_virtual(offset, alignment)},
 
 	"db": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 1, *operands)},
 	"dw": {"args": False, "wantsoffset": True, "resolve": lambda offset, *operands: dd_virtual(offset, 2, *operands)},
@@ -957,7 +970,11 @@ def decode_instruction(instruction, offset):
 
 		decoded_operands = [];
 		for operand in operands:
-			decoded = decode_operand(operand.strip());
+			operand = operand.strip();
+			if (operand in macros):
+				decoded_operands.append(macros[operand]);
+				continue;
+			decoded = decode_operand(operand);
 			if (decoded["type"] == "error"):
 				return decoded;
 			decoded_operands.append(decoded);

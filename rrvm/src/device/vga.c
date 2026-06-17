@@ -153,7 +153,7 @@ device_t * vga_create_device() {
 	memcpy(vga->palette, vga_palette_4bpp, sizeof(vga->palette));
 	vga->bpp = 4;
 
-	memset(vga->fb, 0, VGA_DEFAULT_WIDTH * VGA_DEFAULT_HEIGHT);
+	memset(vga->fb, 0, (VGA_DEFAULT_WIDTH * VGA_DEFAULT_HEIGHT) * 4);
 
 	bus_port_t * port_list = malloc(sizeof(bus_port_t) * 1);
 	port_list[0].type = BUS_MEMORY;

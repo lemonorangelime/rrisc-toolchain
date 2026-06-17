@@ -12,7 +12,7 @@
 uint64_t get_time_ns() {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return (tv.tv_sec * 1000000000ull) + (tv.tv_usec);
+	return (tv.tv_sec * 1000000ull) + (tv.tv_usec);
 }
 
 int main(int argc, char * argv[]) {
@@ -37,7 +37,7 @@ int main(int argc, char * argv[]) {
 			system_clock(system);
 		}
 	} else {
-		uint32_t usec_delay = 1000000000llu / clock_speed;
+		uint32_t usec_delay = 1000000llu / clock_speed;
 		uint64_t deadline = get_time_ns() + usec_delay;
 		while (system->running) {
 			system_clock(system);

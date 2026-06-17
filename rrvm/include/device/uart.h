@@ -3,12 +3,12 @@
 #include <device.h>
 #include <bus.h>
 
-#define UART_MMIO_BASE (0x1a7d << 2)
-#define UART_MMIO_END (0x1a80 << 2)
+#define UART_MMIO_BASE (0xfff0 << 2)
+#define UART_MMIO_END (0xfff3 << 2)
 
-#define UART_RX_OFFSET 0x00
+#define UART_RX_OFFSET 0x08
 #define UART_TX_OFFSET 0x04
-#define UART_STAT_OFFSET 0x08
+#define UART_STAT_OFFSET 0x00
 
 // CHANGE ME
 #define UART_FIFO_PATH "./uart-fifo"
@@ -22,9 +22,9 @@ enum {
 };
 
 typedef struct {
+	uint32_t status;
 	uint32_t rx_data;
 	uint32_t tx_data;
-	uint32_t status;
 } __attribute__((packed)) uart_mmio_buffer_t;
 
 typedef struct {

@@ -83,7 +83,17 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 		case OP_SHLI: REGISTER(instruction.dest) = htonl(RREGISTER(instruction.reg_a) << IMM(instruction.imm)); break;
 		case OP_SHRI: REGISTER(instruction.dest) = htonl(RREGISTER(instruction.reg_a) >> IMM(instruction.imm)); break;
 
-		case OP_LD: BUS_READ(rrisc_cpu->mem_bus, REGISTER(instruction.dest), RREGISTER(instruction.reg_a), IMM(instruction.imm)); break;
+		case OP_LD:
+			if ((RREGISTER(instruction.reg_a) + IMM(instruction.imm)) == RRISC_VERSION_ADDR) {
+				REGISTER(instruction.dest) = htonl(RRISC_VERSION);
+				break;
+			}
+			if ((RREGISTER(instruction.reg_a) + IMM(instruction.imm)) == RRISC_IDENTIFIER_ADDR) {
+				REGISTER(instruction.dest) = htonl(RRISC_IDENTIFIER);
+				break;
+			}
+			BUS_READ(rrisc_cpu->mem_bus, REGISTER(instruction.dest), RREGISTER(instruction.reg_a), IMM(instruction.imm));
+			break;
 		case OP_ST: BUS_WRITE(rrisc_cpu->mem_bus, RREGISTER(instruction.dest), REGISTER(instruction.reg_a), IMM(instruction.imm)); break;
 
 		case OP_BEQ:
@@ -161,7 +171,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 		case OP_HALT: pc_next = rrisc_cpu->registers.pc; break;
 
 		default:
-			printf("unimplemented or invalid opcode\n");
+			printf("unimplemented or invalid opcode 0x%.8x\n", ntohl(*(uint32_t*)&instruction));
 			break;
 	}
 

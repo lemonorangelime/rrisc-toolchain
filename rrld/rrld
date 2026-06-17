@@ -296,6 +296,10 @@ def lookup_assembly(address):
 def link_symbols():
 	for sym in unresolved:
 		symname = sym["value"];
+		if (symname not in symbols):
+			print_error("error", "link_symbols(): Could not locate symbol %s" % (str(symname, "utf-8")));
+			return False;
+
 		symtype = sym["type"];
 		bytesize = {
 			"abs8": 1,
@@ -308,7 +312,7 @@ def link_symbols():
 
 		asmid = lookup_assembly(sym["address"] + bytesize[sym["type"]]);
 		if (type(asmid) == bool and asmid == False):
-			print_error("error", "Failed to locate assembly for unresolved symbol '%s'" % str(sym["value"], "utf-8"));
+			print_error("error", "Failed to locate assembly for unresolved symbol '%s'" % str(symname, "utf-8"));
 			return False;
 
 		assembly = assemblies[asmid];
@@ -318,31 +322,31 @@ def link_symbols():
 		binary = bytearray(assembly["data"]);
 		if (symtype == "abs8"):
 			if (rrasm.int_bound_check(symval, 8, 0)):
-				print_error("error", "link_symbols(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "link_symbols(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (str(symname, "utf-8"), symval));
 				return False;
 
 			assembly["data"][offset:offset+1] = struct.pack("B", symval >> 2);
 		elif (symtype == "abs16"):
 			if (rrasm.int_bound_check(symval, 16, 0)):
-				print_error("error", "link_symbols(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "link_symbols(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (str(symname, "utf-8"), symval));
 				return False;
 
 			binary[offset:offset+2] = struct.pack(">H", symval >> 2);
 		elif (symtype == "abs32"):
 			if (rrasm.int_bound_check(symval, 32, 0)):
-				print_error("error", "link_symbols(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "link_symbols(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (str(symname, "utf-8"), symval));
 				return False;
 
 			binary[offset:offset+4] = struct.pack(">I", symval >> 2);
 		elif (symtype == "abs64"):
 			if (rrasm.int_bound_check(symval, 64, 0)):
-				print_error("error", "link_symbols(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "link_symbols(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (str(symname, "utf-8"), symval));
 				return;
 
 			binary[offset:offset+8] = struct.pack(">Q", symval >> 2);
 		elif (symtype == "rel16"):
 			if (rrasm.int_bound_check(symval, 15, 1)):
-				print_error("error", "link_symbols(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
+				print_error("error", "link_symbols(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (str(symname, "utf-8"), symval));
 				return False;
 
 			binary[offset:offset+2] = struct.pack(">h", (symval >> 2) - (sym["relbase"] >> 2));
