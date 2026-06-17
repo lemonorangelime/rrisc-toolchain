@@ -17,6 +17,7 @@ typedef struct {
 	bus_t * mem_bus;
 	rrisc_registers_t registers;
 	int state;
+	int halt;
 } rrisc_cpu_t;
 
 

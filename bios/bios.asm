@@ -135,6 +135,7 @@ bios_entry.load_program.read_word:
 	add r6, 1
 	add r3, 1
 	bneq r5, r6, bios_entry.load_program.poll_uart
+
 bios_entry.load_program.detect:
 bios_entry.load_program.detect.roadrun:
 	xor r3, r3
@@ -170,14 +171,14 @@ bios_entry.load_program.enter.jmptable:
 
 bios_entry.load_program.enter.bin:
 	xor r0, r0
-	mov r1, 0x1a70
+	mov r1, VGA_PALETTE_BASE
 	mov [r1], r0
 	call fill_screen
 	jmpabs 0x0000
 
 bios_entry.load_program.enter.roadrun:
 	xor r0, r0
-	mov r1, 0x1a70
+	mov r1, VGA_PALETTE_BASE
 	mov [r1], r0
 	call fill_screen
 	mov r3, [r3 + 3] ; push header->entry_point

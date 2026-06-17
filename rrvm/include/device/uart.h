@@ -4,10 +4,10 @@
 #include <bus.h>
 
 #define UART_MMIO_BASE (0xfff0 << 2)
-#define UART_MMIO_END (0xfff3 << 2)
+#define UART_MMIO_END (0xfff4 << 2)
 
-#define UART_RX_OFFSET 0x08
-#define UART_TX_OFFSET 0x04
+#define UART_TX_OFFSET 0x08
+#define UART_RX_OFFSET 0x04
 #define UART_STAT_OFFSET 0x00
 
 // CHANGE ME

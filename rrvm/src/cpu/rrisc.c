@@ -53,6 +53,10 @@ void dump_registers(rrisc_cpu_t * rrisc_cpu) {
 
 void rrisc_cpu_clock(cpu_t * cpu) {
 	rrisc_cpu_t * rrisc_cpu = (rrisc_cpu_t *) cpu;
+	if (rrisc_cpu->halt) {
+		return;
+	}
+
 	rrisc_instruction_t instruction;
 	rrisc_cpu_fetch(rrisc_cpu, &instruction);
 
@@ -168,7 +172,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 
 		case OP_JREG: pc_next = RREGISTER(instruction.dest);
 
-		case OP_HALT: pc_next = rrisc_cpu->registers.pc; break;
+		case OP_HALT: rrisc_cpu->halt = 1; break;
 
 		default:
 			printf("unimplemented or invalid opcode 0x%.8x\n", ntohl(*(uint32_t*)&instruction));
@@ -192,6 +196,7 @@ cpu_t * rrisc_cpu_create() {
 	cpu->cpu.port_count = 2;
 	cpu->mem_bus = NULL;
 	cpu->io_bus = NULL;
+	cpu->halt = 0;
 
 	memset(&cpu->registers, 0, sizeof(cpu->registers));
 
