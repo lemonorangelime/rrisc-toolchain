@@ -23,7 +23,7 @@ xor r15, r15
 xor r0, r0
 xor r1, r1
 mov r14, JAL_BRANCH_NEVER_TAKEN ; we are about to check
-call r0, skip
+jal r0, skip
 jal_expected:
 	jmp done
 skip:

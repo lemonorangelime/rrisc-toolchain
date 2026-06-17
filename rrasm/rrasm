@@ -103,8 +103,6 @@ encodings = {
 	"halt":	{"opcode": 0xff, "args": 0, "encoding": ""},
 };
 
-VREG_SP = -1;
-
 # register table
 registers = {
 	"r0": {"type": "reg", "value": 0},
@@ -129,7 +127,8 @@ registers = {
 	#"r16": {"type": "ctrl", "value": 16},
 
 	# virtual
-	"sp": {"type": "vreg", "value": VREG_SP},
+	"sp": {"type": "vreg", "value": "sp"},
+	"pc": {"type": "vreg", "value": "pc"},
 };
 
 # aliases
@@ -206,10 +205,10 @@ def mov_virtual_instruction(a, b):
 	if (a["type"] == "ctrl" and b["type"] == "reg"):
 		return {"type": "instruction", "name": "stc"};
 
-	if ((a["type"] == "vreg" and a["value"] == VREG_SP) and b["type"] == "reg"):
+	if ((a["type"] == "vreg" and a["value"] == "sp") and b["type"] == "reg"):
 		return {"type": "instruction", "name": "sts", "operands": [b]};
 
-	if (a["type"] == "reg" and (b["type"] == "vreg" and b["value"] == VREG_SP)):
+	if (a["type"] == "reg" and (b["type"] == "vreg" and b["value"] == "sp")):
 		return {"type": "instruction", "name": "lds", "operands": [a]};
 
 	return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
@@ -294,8 +293,6 @@ def mul_virtual_resolver(a, b, c, d, which="mull"):
 			{"type": "instruction", "name": "mull", "operands": [a, c, d]},
 			{"type": "instruction", "name": "mulu", "operands": [b, c, d]},
 		];
-		print_error("error", "mul_virtual_resolver(): 4 arguments, UNIMPLEMENTED, FIXME");
-		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
 	return {"type": "instruction", "name": which, "operands": [a, b, c]};
 
@@ -364,7 +361,7 @@ def extern_virtual(sym):
 		return {"type": "error", "value": ERR_UNSUPPORTED_ARGS};
 
 	if (output_format != "elf"):
-		print_error("warning", "Encountered `extern` when assembling static binary, this is likely a mistake", "staticextern");
+		print_error("warning", "Encountered `extern` when assembling static binary, this is likely a mistake", "static-extern");
 
 	exports.append(sym["value"]);
 	return {"type": "null"};
@@ -487,7 +484,7 @@ def search_for_entrypoint():
 	if (entrypoint_name in symbols):
 		return symbols[entrypoint_name];
 
-	print_error("warning", "Entry point '%s' not found" % entrypoint_name, "noentry");
+	print_error("warning", "Entry point '%s' not found" % entrypoint_name, "no-entry");
 	return 0x00000000;
 
 # transform bin to .elf format
@@ -1340,7 +1337,7 @@ def set_compression_level(level):
 
 	compression_level = decoded;
 
-if __name__ == "__main__":
+if (__name__ == "__main__"):
 	parser = argparse.ArgumentParser(prog="rrasm", description="Roadrunner Assembler");
 	parser.add_argument("source");
 	parser.add_argument("-o", "--output", help="output filename");

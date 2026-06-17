@@ -243,7 +243,6 @@ def overlaps_assembly(current, address, size):
 		check_start = assembly["address"];
 		check_end = assembly["address"] + assembly["size"];
 		if (check_start < end and check_end > address):
-			print(check_start, end, check_end, address)
 			print_error("error", "overlaps_assembly(): Assemblies overlap and not relocating, unimplemented. FIX ME");
 			return True;
 
@@ -391,6 +390,11 @@ def relocate_assemblies():
 	relocated_assemblies = [];
 	asmid = 0;
 	for assembly in assemblies:
+		if (assembly["address"] != 0x0000):
+			print_error("info", "Not relocating assembly with fixed vmembase", "fixed-assembly")
+			relocate_assemblies(assembly);
+			continue;
+
 		relocated = relocate_assembly(asmid, new_vmembase, assembly);
 		if (relocated == False):
 			return False;

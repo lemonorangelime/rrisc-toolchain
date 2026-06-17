@@ -1,4 +1,5 @@
 _start:
+	xor r0, r0
 	add r1, r0, 0x0000
 	add r2, r0, 0x0001
 loop:

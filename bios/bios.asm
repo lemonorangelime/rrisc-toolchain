@@ -1,62 +1,199 @@
+org 0x1600
+
 VGA_FB equ 0x1a80
+VGA_FB_END equ 0x4000
 VGA_WIDTH equ 320
 VGA_STRIDE equ 40
 
-test:
-	mov r0, 0x1a80
+; UART not implemented yet, change these as needed later
+UART_RX equ 0x1a7d
+UART_TX equ 0x1a7e
+UART_STAT equ 0x1a7f
+
+UART_STAT_RX_READY equ 0b00000001
+UART_STAT_TX_READY equ 0b00000010
+
+STACK_TOP equ 0x1600
+
+EXECUTABLE_BIN equ 0x00 ; default type
+EXECUTABLE_ROADRUN equ 0x01
+
+; bios_func_table[bios_func_num](...)
+; this is at 0x1600, bios functions use the standard ABI
+bios_func_table:
+	dd draw_glyph
+	dd locate_glyph
+	dd find_pixel
+	dd fill_screen
+
+bios_boot_message: dd "RoadRisc-32 CPU BIOS"
+
+bios_entry:
+	mov r0, STACK_TOP
 	mov sp, r0
-	mov r0, 0
-	mov r1, 0
-	mov r2, 0x0393
-	call draw_glyph
-	mov r0, 8
-	mov r1, 4
-	mov r2, 0x03b5
-	call draw_glyph
-	mov r0, 16
-	mov r1, 0
-	mov r2, 0x03af
-	call draw_glyph
-	mov r0, 24
-	mov r1, 4
-	mov r2, 0x03b1
-	call draw_glyph
 
-	mov r0, 40
-	mov r1, 0
-	mov r2, 0x03c3
-	call draw_glyph
-	mov r0, 48
-	mov r1, 4
-	mov r2, 'o'
-	call draw_glyph
-	mov r0, 56
-	mov r1, 0
-	mov r2, 0x03c5
-	call draw_glyph
-	mov r0, 64
-	mov r1, 4
-	mov r2, 0x03d7
-	call draw_glyph
+	mov r0, 0x2
+	call fill_screen
 
-	mov r0, 310
-	mov r1, 8
-	mov r2, 0xe000
-	call draw_glyph
-test.stall:
-	jmp test.stall
+	xor r0, r0
+	xor r1, r1
+	mov r2, bios_boot_message
+	mov r3, 20
+	call draw_str32
 
-VGA_FB_HACK equ 0xd400 ; (VGA_FB << 3)
-extern find_pixel
+	mov r0, UART_STAT
+	mov r1, UART_RX
+	mov r2, UART_STAT_RX_READY
+	xor r3, r3
+	xor r6, r6
+bios_entry.poll_uart:
+	mov r4, [r0]
+	and r4, r2
+	beq r4, r2, bios_entry.load_program
+	jmp bios_entry.poll_uart
+
+bios_entry.load_program:
+	mov r5, [r1]
+bios_entry.load_program.poll_uart:
+	mov r4, [r0]
+	and r4, r2
+	bneq r4, r2, bios_entry.load_program.poll_uart
+bios_entry.load_program.read_word:
+	mov r7, [r1]
+	mov [r3], r7
+	add r6, 1
+	add r3, 1
+	bneq r5, r6, bios_entry.load_program.poll_uart
+bios_entry.load_program.detect:
+bios_entry.load_program.detect.roadrun:
+	xor r3, r3
+	mov r8, EXECUTABLE_ROADRUN
+	mov r7, [r3]
+	mov r9, 0x7f52
+	shl r9, 16
+	or r9, 0x4f41
+	bneq r7, r9, bios_entry.load_program.detect.bin
+	mov r7, [r3 + 1]
+	mov r9, 0x4452
+	shl r9, 16
+	or r9, 0x554e
+	bneq r7, r9, bios_entry.load_program.detect.bin
+	jmp bios_entry.load_program.enter
+
+bios_entry.load_program.detect.bin:
+	mov r8, EXECUTABLE_BIN
+
+bios_entry.load_program.enter:
+	mov r10, bios_entry
+	push r10
+
+	mov r10, bios_entry.load_program.enter.jmptable
+	add r10, r8
+	mov r10, [r10]
+	push r10
+	ret
+
+bios_entry.load_program.enter.jmptable:
+	dd bios_entry.load_program.enter.bin
+	dd bios_entry.load_program.enter.roadrun
+
+bios_entry.load_program.enter.bin:
+	xor r0, r0
+	call fill_screen
+	jmpabs 0x0000
+
+bios_entry.load_program.enter.roadrun:
+	xor r0, r0
+	call fill_screen
+	mov r3, [r3 + 3] ; push header->entry_point
+	shr r3, 2
+	push r3
+
+	xor r3, r3
+	mov r3, [r3 + 2] ; r0 = vmembase + (size - 1), r3 = vmembase
+	shr r3, 2
+	add r0, r3, r6
+	sub r0, 5
+
+	xor r4, r4 ; r1 = blob + (size - 1), r4 = header + sizeof(header)
+	add r1, r4, r6
+	sub r1, 1
+	add r4, 4
+
+	blt r1, r0, bios_entry.load_program.enter.roadrun.relocate_forward
+
+	xor r2, r2
+bios_entry.load_program.enter.roadrun.relocate_backward:
+	mov r5, [r1]
+	mov [r0], r5
+	sub r0, 1
+	sub r1, 1
+	bneq r1, r2, bios_entry.load_program.enter.roadrun.relocate_backward
+	ret
+
+bios_entry.load_program.enter.roadrun.relocate_forward:
+	mov r5, [r4]
+	mov [r3], r5
+	add r3, 1
+	add r4, 1
+	blt r6, r3, bios_entry.load_program.enter.roadrun.relocate_forward
+	ret
+
+
+
+fill_screen: ; fill_screen(colour) fill screen
+	mov r15, 0x1111
+	shl r15, 16
+	or r15, 0x1111
+	and r13, r0, 0xf
+	mul r15, r13
+	mov r13, VGA_FB
+	mov r14, VGA_FB_END
+fill_screen.loop:
+	mov [r13], r15
+	add r13, 1
+	blt r14, r13, fill_screen.loop
+	ret
+
+
+
+draw_str32: ; draw_str32(x, y, s, len)
+	push r0
+	push r2
+
+	add r13, r2, r3
+	mov r14, r2
+draw_str32.loop:
+	mov r2, [r14]
+	add r14, 1
+
+	push r0
+	push r13
+	push r14
+	call draw_glyph
+	pop r14
+	pop r13
+	pop r0
+
+	add r0, 8
+	blt r13, r14, draw_str32.loop	
+
+	pop r2
+	pop r0
+	ret
+
+
+
 find_pixel: ; find_pixel(x, y) - return pixel address in r0
-	mov r15, 320
+	mov r15, VGA_WIDTH
 	mul r15, r1, r15
 	add r0, r15
 	shr r0, 3
 	add r0, VGA_FB
 	ret
 
-extern draw_word
+
+
 draw_word: ; draw_word(glyph, x, y, type)
 	push r0
 	push r0
@@ -97,24 +234,24 @@ draw_word.bitmap_glyph:
 	mov r0, r15
 
 	shr r15, r0, 24
-	call draw_word.broadcast_pixel
+	call draw_word.bitmap_glyph.broadcast_pixel
 
 	shr r15, r0, 16
 	add r14, VGA_STRIDE
-	call draw_word.broadcast_pixel
+	call draw_word.bitmap_glyph.broadcast_pixel
 
 	shr r15, r0, 8
 	add r14, VGA_STRIDE
-	call draw_word.broadcast_pixel
+	call draw_word.bitmap_glyph.broadcast_pixel
 
 	mov r15, r0
 	add r14, VGA_STRIDE
-	call draw_word.broadcast_pixel
+	call draw_word.bitmap_glyph.broadcast_pixel
 	pop r12
 	add r2, 4
 	ret
 
-draw_word.broadcast_pixel:
+draw_word.bitmap_glyph.broadcast_pixel:
 	and r15, 0xff
 	shl r13, r15, 12 ; pass 1
 	or r15, r13
@@ -145,7 +282,8 @@ draw_word.broadcast_pixel:
 	mov [r14], r12
 	ret
 
-extern draw_glyph
+
+
 draw_glyph: ; draw_glyph(x, y, c)
 	push r1
 	push r2
@@ -189,9 +327,11 @@ graw_glyph.fail:
 	mov r0, 1
 	jmp draw_glyph.exit
 
-extern locate_glyph
 locate_glyph: ; locate_glyph(c) - find glyph in font table, return null if not found
 	push r1
+
+	mov r1, 0x7f
+	blt r1, r0, locate_glyph.flat
 
 	mov r15, r0
 	mov r13, font_table_end
@@ -208,7 +348,21 @@ locate_glyph.readloop:
 	add r0, r14
 	bneq r0, r13, locate_glyph.readloop
 
+locate_glyph.fail:
+	xor r0, r0
+
 locate_glyph.exit:
+	pop r1
+	ret
+
+locate_glyph.flat:
+	mov r1, 0x20
+	blt r1, r0, locate_glyph.fail
+	mov r1, 3
+	sub r0, 0x20
+	mul r0, r1
+	add r0, font_table
+
 	pop r1
 	ret
 
@@ -1617,13 +1771,13 @@ dd 0xca03b620
 dd 0x70005e00
 dd 0x000dd400
 
-dw 0xe000, 0x0001
-dd 0x2338b332
-dd 0x24bccbb3
-dd 0x26cbc1c3
-dd 0x16ac5cb0
-dd 0x5bbb9ab6
-dd 0x7a7898b7
-dd 0x8b8888c7
-dd 0x7ca778b6
+;dw 0xe000, 0x0001
+;dd 0x2338b332
+;dd 0x24bccbb3
+;dd 0x26cbc1c3
+;dd 0x16ac5cb0
+;dd 0x5bbb9ab6
+;dd 0x7a7898b7
+;dd 0x8b8888c7
+;dd 0x7ca778b6
 font_table_end:

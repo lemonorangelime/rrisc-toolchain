@@ -53,7 +53,7 @@ add r13, 1
 mov r14, JAL_BRANCH_NEVER_TAKEN
 xor r0, r0
 xor r1, r1
-call r0, skip
+jal r0, skip
 jal_expected:
 	jmp done
 skip:
