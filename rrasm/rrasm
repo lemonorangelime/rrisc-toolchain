@@ -6,6 +6,7 @@ import lzma;
 import gzip;
 import shlex;
 import datetime;
+import traceback;
 
 ## constants
 
@@ -42,8 +43,30 @@ compressor = "none"; # file compressor (-z)
 compression_level = 1; # compression level (-l)
 
 
+# preproccesor
 
+PREPROCESSOR_PASSTHROUGH = 0;
+PREPROCESSOR_IFDEF = 1;
+PREPROCESSOR_DEFINE = 2;
 
+preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+preprocessor_hungry = False;
+preprocessor_accepted = ["ifdef", "ifndef", "define", "elifdef", "elifndef"];
+preprocessor_controls = [PREPROCESSOR_IFDEF];
+preprocessor_stack = [];
+
+# error enum
+ERR_DECODE_FAILED = 0;
+ERR_RESOLUTION_FAILED = 1;
+ERR_UNKNOWN_DECODE_ERROR = 2;
+ERR_INCORRECT_ARG_COUNT = 3;
+ERR_UNSUPPORTED_ARGS = 4;
+ERR_SERIALISATION_FAILED = 5;
+ERR_SYM_NOT_FOUND = 6;
+ERR_SYM_REDEFINED = 7;
+ERR_UNIMPLEMENTED = 8;
+
+ERR_GENERIC = -0xff;
 
 # instruction encoding table
 
@@ -142,7 +165,9 @@ symbols = {}; # symbols - filled at runtime
 symtype = {}; # symbol types - runtime variable
 
 macros = {
-	"ASSEMBLE_TIME": {"type": "str", "value": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")}
+	"__TIMESTAMP__": {"type": "str", "value": datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")},
+	"__TIME__": {"type": "str", "value": datetime.datetime.now().strftime("%H:%M:%S")},
+	"__DATE__": {"type": "str", "value": datetime.datetime.now().strftime("%Y/%m/%d")}
 };
 
 unresolved = []; # unresolved symbols - same
@@ -248,7 +273,7 @@ def incbin_virtual(a):
 		f.close();
 		return {"type": "data", "value": b};
 	except Exception as e:
-		print_error("warning", "Could not open file '%s'" % a["value"]);
+		print_error("error", "Could not open file '%s'" % a["value"]);
 		return {"type": "error", "value": ERR_RESOLUTION_FAILED};
 
 # generic register, #imm virtual resolver
@@ -299,16 +324,40 @@ def mul_virtual_resolver(a, b, c, d, which="mull"):
 
 	return {"type": "instruction", "name": which, "operands": [a, b, c]};
 
+def negate(n, numbits=8):
+    return ((1 << numbits) + n) & (1 << numbits) - 1;
+
+def float2fix(f, bitcount):
+	return int(f * (1 << bitcount));
 
 # generic operand serialiser, serialises an operand of type to bytesize-bytes
 def serialise(bytesize, operand, offset):
 	value = operand["value"];
 
-	# decimal - float (not supported by this procesor, oh well!)
-	if (operand["type"] == "decimal" and bytesize == 4):
-		return struct.pack(">f", value);
-	if (operand["type"] == "decimal" and bytesize == 8):
-		return struct.pack(">d", value);
+	# decimal - fixed-points
+	if (operand["type"] == "decimal"):
+		decimalformats = {
+			1: ">b",
+			2: ">h",
+			4: ">i",
+			8: ">q"
+		};
+
+		fixed = float2fix(operand["value"], bytesize * 4);
+		return struct.pack(decimalformats[bytesize], fixed);
+
+	# floats
+	if (operand["type"] == "float"):
+		if (bytesize == 1):
+			print_error("error", "serialise(): Size specifier too small for float, 8-bit float not supported");
+			return {"type": "error", "value": ERR_SERIALISATION_FAILED};
+
+		floatformats = {
+			2: ">e",
+			4: ">f",
+			8: ">d"
+		};
+		return struct.pack(floatformats[bytesize], operand["value"]);
 
 	if (operand["type"] == "int" or operand["type"] == "sym"):
 		if (operand["type"] == "sym"):
@@ -729,18 +778,6 @@ compressors = {
 # compressor option help text
 compressors_help = "set output compressor [ %s ]" % (", ".join(compressors.keys()));
 
-# error enum
-ERR_DECODE_FAILED = 0;
-ERR_RESOLUTION_FAILED = 1;
-ERR_UNKNOWN_DECODE_ERROR = 2;
-ERR_INCORRECT_ARG_COUNT = 3;
-ERR_UNSUPPORTED_ARGS = 4;
-ERR_SERIALISATION_FAILED = 5;
-ERR_SYM_NOT_FOUND = 6;
-ERR_SYM_REDEFINED = 7;
-
-ERR_GENERIC = -0xff;
-
 # bound check int
 def int_bound_check(int, bits, signed):
 	if ((int < 0) and signed):
@@ -753,7 +790,9 @@ def int_bound_check(int, bits, signed):
 # decode decimal operand from string
 def decode_decimal_operand(operand):
 	try:
-		# logic for this should be inverted, we should decode to a fixed point and convert to a float when needed
+		if (operand[-1].lower() == 'f'):
+			return {"type": "float", "value": float(operand[:-1])};
+
 		return {"type": "decimal", "value": float(operand)};
 	except Exception as e:
 		return {"type": "error", "value": ERR_DECODE_FAILED};
@@ -826,16 +865,19 @@ def decode_mem_operand(operand):
 			except Exception as e:
 				print_error("error", "decode_mem_operand(): Could not force cast immediate int in memory ref %s" % operand);
 				return {"type": "error", "value": ERR_DECODE_FAILED};
+
 			decoded["imm"] = decodedint;
 			regname = reference[:adden_index];
 	except Exception as e:
 		regname = reference;
 
 	# ... ra cannot, error if not present
-	if (regname not in registers):
+	if ((regname not in registers) or (registers[regname]["type"] != "reg")):
+		print_error("error", "decode_mem_operand(): Bad offset-register '%s' during decoding of operand %s" % (regname, operand));
 		return {"type": "error", "value": ERR_DECODE_FAILED};
 
 	decoded["value"] = registers[regname]["value"];
+	decoded["regname"] = regname;
 	return decoded;
 
 # decode int operand from string
@@ -857,6 +899,10 @@ def looks_like_decimal(operand):
 	except:
 		pass
 	try:
+		if (operand[-1].lower() == 'f'):
+			float(operand[:-1]);
+			return True;
+
 		float(operand);
 		return True;
 	except:
@@ -898,6 +944,7 @@ def resolve_final_instruction(insname, operands, offset):
 				else:
 					return resolver["resolve"](*operands);
 			except Exception as e:
+				print_error("error", "resolve_final_instruction(): Exception during resolution [ %s ]" % format_exception(e));
 				return {"type": "error", "value": ERR_RESOLUTION_FAILED};
 
 	return {"type": "instruction", "name": insname};
@@ -907,7 +954,7 @@ def decode_symbol(symbol):
 	if (symbol[-1] == ':'):
 		return {"type": "relsym", "value": symbol[:-1]}; # make relative symbol here
 
-	words = symbol.split(" ");
+	words = symbol.split(' ');
 	if (len(words) != 3):
 		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
 
@@ -940,40 +987,66 @@ def fixed_sym_decode_prepass(instruction):
 
 	return {"type": "null"};
 
+def split_instruction(instruction):
+	instruction = instruction.strip();
+	whitespace = [' ', '\t', '\v'];
+	for i in range(0, len(instruction)):
+		c = instruction[i];
+		if (c in whitespace):
+			return [instruction[:i].strip(), instruction[i + 1:].strip()]
+
+	return [instruction];
+
+def print_operand(operand):
+	if (operand["type"] == "reg" or operand["type"] == "vreg"):
+		return registers.keys()[registers.values().index(operand)];
+
+	if (operand["type"] == "mem"):
+		return "[%s+%s]" % (operand["regname"], operand["imm"])
+
+	return str(operand("value"));
+
 # decode instruction to ast object
-def decode_instruction(instruction, offset):
+def decode_instruction(instruction, offset, macro_overrides={}):
 	try:
 		instruction = instruction.strip();
-		if ' ' in instruction:
+		if (len(instruction) == 0):
+			return {"type": "null"};
+
+		splitinsr = split_instruction(instruction);
+		insname = splitinsr[0];
+		if len(splitinsr) > 1:
 			deduped = strdedup(instruction, ' ').strip();
 			words = deduped.split(' ');
 			if (len(words) == 3 and words[1].lower() == "equ"):
 				return {"type": "null"};
 
-			splitpoint = instruction.index(' ');
-			insname = instruction[:splitpoint].strip().lower();
+			#splitpoint = instruction.index(' ');
 			if (insname[-1] == ':'):
 				decodedsym = decode_symbol(insname.replace(' ', ''));
-				decodedins = decode_instruction(instruction[instruction.index(":") + 1:], offset);
+				decodedins = decode_instruction(instruction[instruction.index(":") + 1:], offset, macro_overrides);
 				if (type(decodedins) == list):
 					return [decodedsym, *decodedins];
 				return [decodedsym, decodedins];
 
-			oplist = instruction[splitpoint+1:];
+			oplist = splitinsr[1];
 			operands = oplist.split(',');
 		else:
-			if (instruction[-1] == ':'):
-				return decode_symbol(instruction.replace(' ', ''));
-
-			insname = instruction;
+			if (insname[-1] == ':'):
+				return decode_symbol(insname.replace(' ', ''));
 			operands = [];
 
 		decoded_operands = [];
 		for operand in operands:
 			operand = operand.strip();
+			if (operand in macro_overrides):
+				decoded_operands.append(macro_overrides[operand]);
+				continue;
+
 			if (operand in macros):
 				decoded_operands.append(macros[operand]);
 				continue;
+
 			decoded = decode_operand(operand);
 			if (decoded["type"] == "error"):
 				return decoded;
@@ -988,6 +1061,7 @@ def decode_instruction(instruction, offset):
 				continue;
 
 			if (ins["type"] != "instruction"):
+				print_error("error", "decode_instruction(): Virtual resolver returned unknown type");
 				return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
 
 			local_operands = decoded_operands;
@@ -998,18 +1072,24 @@ def decode_instruction(instruction, offset):
 
 		return resolved_list;
 	except Exception as e:
+		print_error("error", "decode_instruction(): Exception during decoding [ %s ]" % format_exception(e));
 		return {"type": "error", "value": ERR_UNKNOWN_DECODE_ERROR};
+
+def format_exception(e):
+	return "".join(traceback.format_exception_only(e)).strip();
 
 # serialise instruction at file offset
 def serialise_instruction(instruction, offset):
 	name = instruction["name"];
 	operands = instruction["operands"];
 	if (name not in encodings):
+		print_error("error", "serialise_instruction(): Could not find instruction '%s' in encoding table" % name);
 		return {"type": "error", "value": ERR_RESOLUTION_FAILED};
 
 	serialised = bytearray([encodings[name]["opcode"], 0, 0, 0]);
 	encoding = encodings[name];
 	if (encoding["args"] != len(operands)):
+		print_error("error", "serialise_instruction(): Got %s operands, expected [ %s ]" % (encoding["args"], ", ".join(operands)));
 		return {"type": "error", "value": ERR_INCORRECT_ARG_COUNT};
 
 	i = 0;
@@ -1099,7 +1179,10 @@ def serialise_instruction(instruction, offset):
 
 	return bytes(serialised);
 
-def handle_decoded_instruction(decoded, offset):
+def handle_decoded_instruction(decoded, offset, macro_overrides={}):
+	if (decoded["type"] == "reprocess"):
+		return assemble_instruction(decoded["value"], offset), macro_overrides;
+
 	if (decoded["type"] == "error"):
 		return decoded;
 
@@ -1127,13 +1210,186 @@ def handle_decoded_instruction(decoded, offset):
 
 	return decoded;
 
+def parse_macrodef(directive):
+	function = False;
+	nameend = 0;
+	whitespace = [' ', '\t', '\v'];
+	for i in range(0, len(directive)):
+		c = directive[i];
+		if (function and c == '('):
+			print_error("error", "parse_macrodef(): Bad macro definition [ %s ]" % directive);
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+
+		if (not function and c == ')'):
+			print_error("error", "parse_macrodef(): Bad macro definition [ %s ]" % directive);
+			return {"type": "error", "value": ERR_DECODE_FAILED};
+
+		if (c == '('):
+			nameend = i;
+			function = True;
+
+		if (function and c == ')'):
+			return {"type": "function", "name": directive[:nameend], "operands": directive[nameend + 1:i], "body": directive[i + 1:]};
+
+		if (c in whitespace and not function):
+			return {"type": "macro", "name": directive[:i], "body": directive[i + 1:]};
+
+	return {"type": "error", "value": ERR_DECODE_FAILED};
+
+def expand_macro(name, oplist, body, offset, args):
+	if (len(args) not in virtual[name]["args"]):
+		return {"type": "error", "value": ERR_INCORRECT_ARG_COUNT};
+
+	macro_overrides = {oplist[i]:args[i] for i in range(len(args))};
+	assembly = assemble_lines(body.split('\n'), offset, name, macro_overrides);
+	if (type(assembly) != bytes and type(assembly) != bytearray):
+		return assembly;
+
+	return {"type": "data", "value": assembly};
+
+def create_macro_function(name, operand, body):
+	oplist = [o.strip() for o in operand.split(',')];
+	virtual[name] = {"args": [len(oplist)], "wantsoffset": True, "resolve": lambda offset, *args: expand_macro(name, oplist, body, offset, args)};
+
+def preprocess(instruction, offset):
+	global preprocessor_state;
+	global preprocessor_accepted;
+	global preprocessor_hungry;
+
+	instruction = instruction.strip();
+	if (instruction[0] == '#'):
+		split_directive = split_instruction(instruction[1:]);
+		if (split_directive[0] == "endif" and "endif" in preprocessor_accepted):
+			if (len(preprocessor_stack) == 0 or preprocessor_state not in preprocessor_controls):
+				print_error("error", "preprocess(): Lone ifdef");
+				return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+			controldirective = preprocessor_stack.pop();
+			preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+			preprocessor_accepted = controldirective["accepted"];
+			preprocessor_hungry = False;
+			if (controldirective["value"] == True):
+				return controldirective["body"].strip();
+
+		if (split_directive[0] == "else" and "else" in preprocessor_accepted):
+			if (len(preprocessor_stack) == 0 or preprocessor_state not in preprocessor_controls):
+				print_error("error", "preprocess(): Lone else");
+				return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+			controldirective = preprocessor_stack.pop();
+			if (controldirective["value"] == True):
+				preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+				preprocessor_hungry = False;
+				preprocessor_accepted = controldirective["accepted"];
+				return controldirective["body"].strip();
+			else:
+				preprocessor_stack.append({"type": "if", "value": True, "body": "", "accepted": controldirective["accepted"]});
+				preprocessor_accepted = ["endif"];
+				preprocessor_hungry = True;
+				preprocessor_state = PREPROCESSOR_IFDEF;
+				return "";
+
+		if ((split_directive[0] == "elifdef" and "elifdef" in preprocessor_accepted) or (split_directive[0] == "elifndef" and "elifndef" in preprocessor_accepted)):
+			query = split_instruction(split_directive[1]);
+			if (len(query) != 1):
+				print_error("error", "preprocess(): Trash after elifdef directive");
+				return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+			if (len(preprocessor_stack) == 0 or preprocessor_state not in preprocessor_controls):
+				print_error("error", "preprocess(): Lone else");
+				return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+			controldirective = preprocessor_stack.pop();
+			if (controldirective["value"] == True):
+				preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+				preprocessor_hungry = False;
+				preprocessor_accepted = controldirective["accepted"];
+				return controldirective["body"].strip();
+			else:
+				symbol = query[0];
+				truth = (symbol in macros) or (symbol in symbols);
+				if (split_directive[0] == "elifndef"):
+					truth = not truth;
+
+				preprocessor_stack.append({"type": "if", "value": truth, "body": "", "accepted": controldirective["accepted"]});
+				preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
+				preprocessor_hungry = True;
+				preprocessor_state = PREPROCESSOR_IFDEF;
+				return "";
+
+		if ((split_directive[0] == "ifdef" and "ifdef" in preprocessor_accepted)) or split_directive[0] == "ifndef" and "ifndef" in preprocessor_accepted:
+			query = split_instruction(split_directive[1]);
+			if (len(query) != 1):
+				print_error("error", "preprocess(): Trash after ifdef directive");
+				return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+			symbol = query[0];
+			truth = (symbol in macros) or (symbol in symbols);
+			if (split_directive[0] == "ifndef"):
+				truth = not truth;
+
+			preprocessor_stack.append({"type": "if", "value": truth, "body": "", "accepted": preprocessor_accepted});
+			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
+			preprocessor_hungry = True;
+			preprocessor_state = PREPROCESSOR_IFDEF;
+
+		if (split_directive[0] == "define" and "define" in preprocessor_accepted):
+			macrodef = parse_macrodef(split_directive[1]);
+			if (macrodef["type"] == "error"):
+				return macrodef;
+
+			if (macrodef["type"] == "function"):
+				if (macrodef["body"][-1] == '\\'):
+					preprocessor_stack.append({"type": "define", "value": macrodef["name"], "body": macrodef["body"][:-1], "operands": macrodef["operands"], "accepted": preprocessor_accepted});
+					preprocessor_state = PREPROCESSOR_DEFINE;
+					preprocessor_hungry = True;
+					preprocessor_accepted = [];
+				else:
+					create_macro_function(macrodef["name"], macrodef["operands"], macrodef["body"]);
+				return "";
+
+			macros[macrodef["name"]] = decode_operand(macrodef["body"]);
+		return "";
+
+	if (preprocessor_hungry):
+		if (len(preprocessor_stack) == 0):
+			print_error("error", "preprocess(): No idea");
+			return {"type": "error", "value": ERR_UNIMPLEMENTED};
+
+		if ((preprocessor_state == PREPROCESSOR_DEFINE) and (instruction[-1] == '\\')):
+			preprocessor_stack[-1]["body"] += instruction[:-1] + "\n";
+		else:
+			preprocessor_stack[-1]["body"] += instruction + "\n";
+
+		if ((preprocessor_state == PREPROCESSOR_DEFINE) and (instruction[-1] != '\\')):
+			defdirective = preprocessor_stack.pop();
+			create_macro_function(defdirective["value"], defdirective["operands"], defdirective["body"]);
+			preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+			preprocessor_accepted = defdirective["accepted"];
+			preprocessor_hungry = False;
+
+		return "";
+
+
+	if (preprocessor_state != PREPROCESSOR_PASSTHROUGH):
+		return "";
+
+	return instruction;
+
 # assemble instruction at file offset
-def assemble_instruction(instruction, offset):
-	decoded = decode_instruction(instruction, offset);
+def assemble_instruction(instruction, offset, macro_overrides={}):
+	instruction = preprocess(instruction, offset);
+	if (type(instruction) != str):
+		return instruction;
+
+	if ("\n" in instruction):
+		return assemble_lines(instruction.split('\n'), offset);
+
+	decoded = decode_instruction(instruction, offset, macro_overrides);
 	if (type(decoded) == list):
 		final_assembly = b"";
 		for obj in decoded:
-			obj = handle_decoded_instruction(obj, offset);
+			obj = handle_decoded_instruction(obj, offset, macro_overrides);
 			if (obj["type"] == "error"):
 				return obj;
 
@@ -1152,7 +1408,7 @@ def assemble_instruction(instruction, offset):
 
 		return final_assembly;
 
-	decoded = handle_decoded_instruction(decoded, offset);
+	decoded = handle_decoded_instruction(decoded, offset, macro_overrides);
 	if (decoded["type"] == "error"):
 		return decoded;
 
@@ -1190,10 +1446,35 @@ def err2name(code):
 	if (code == ERR_GENERIC):
 		return "ERR_GENERIC";
 
+def assemble_lines(lines, startoffset=0, macro=None, macro_overrides={}):
+	assembly = bytearray();
+	linenum = 1;
+	offset = startoffset;
+	macroerrstr = (" (During expansion of macro %s)" % macro) if macro != None else "";
+	for line in lines:
+		line = strip_comments(line.strip());
+		if (line == ""):
+			linenum += 1;
+			continue;
+
+		instruction = assemble_instruction(line, offset, macro_overrides);
+		if (type(instruction) != bytes and type(instruction) != bytearray):
+			if (instruction["type"] == "error"):
+				print_error("error", "assemble_lines(): %s on line %d%s" % (err2name(instruction["value"]), linenum, macroerrstr));
+			else:
+				print_error("error", "assemble_lines(): Got unknown return value [ %s ] on line %d%s" % (""+instruction, linenum, macroerrstr));
+			return instruction;
+
+		offset += len(instruction);
+		assembly += instruction;
+		linenum += 1;
+	return assembly;
+
 # process `source`, assemble, output to `output_file` in `output_format`
 def process_file(source):
 	global unresolved;
 	global compressor;
+	macros["__FILE__"] = source;
 	file = open(source, "r");
 	contents = file.read();
 	file.close();
@@ -1216,25 +1497,9 @@ def process_file(source):
 			return;
 		linenum += 1;
 
-	offset = 0;
-	linenum = 1;
-	for line in lines:
-		line = strip_comments(line.strip());
-		if (line == ""):
-			linenum += 1;
-			continue;
-
-		instruction = assemble_instruction(line, offset);
-		if (type(instruction) != bytes):
-			if (instruction["type"] == "error"):
-				print_error("error", "process_file(): %s on line %d" % (err2name(instruction["value"]), linenum));
-			else:
-				print_error("error", "process_file(): Got unknown return value [ %s ] on line %d" % (""+instruction, linenum));
-			return;
-
-		offset += len(instruction);
-		assembly += instruction;
-		linenum += 1;
+	assembly = assemble_lines(lines, 0);
+	if (type(assembly) != bytearray):
+		return assembly;
 
 	new_unresolved = [];
 	for deferred in unresolved:
@@ -1379,7 +1644,7 @@ if (__name__ == "__main__"):
 	if (args.entry_point != None):
 		entrypoint_name = args.entry_point;
 	if (args.ignore_warning != None):
-		ignored_warnings = [i.strip() for i in args.ignore_warning.split(",")];
+		ignored_warnings = [i.strip() for i in args.ignore_warning.split(',')];
 	if (args.format != None):
 		output_format = args.format;
 	if (args.output != None):

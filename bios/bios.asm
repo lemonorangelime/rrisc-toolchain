@@ -44,7 +44,7 @@ bios_cpuver_mesage: db "CPU Ver", 0x00
 align 4
 bios_uart_message: db "Waiting for UART packets...", 0x00
 align 4
-bios_comptime_message: db "Assemble date ", ASSEMBLE_TIME, 0x00
+bios_comptime_message: db "Assemble date ", __TIMESTAMP__, 0x00
 align 4
 
 extern bios_entry
