@@ -1,5 +1,20 @@
 org 0x1600
 
+; compilation options:
+;
+; NO_SUPPORT_UNICODE - remove unicode characters from font
+; NO_VGA_PALETTE - don't support VGA palette
+; NO_BOOT_TEXT - don't include boot messages
+; VERY_SMALL - enable options which reduce size
+
+#ifdef VERY_SMALL
+#define NO_SUPPORT_UNICODE 1
+#define NO_VGA_PALETTE 1
+#define NO_BOOT_TEXT 1
+#endif
+
+BACKGROUND_COLOUR equ 0x00008000
+
 VGA_FB equ 0x1a80
 VGA_FB_END equ 0x4000
 VGA_WIDTH equ 320
@@ -34,28 +49,46 @@ bios_func_table:
 	dd print_str
 	dd print_str32
 
-bios_boot_message: db "RoadRisc-32 PC BIOS   V 1.0   2026/6/17", 0x00
+#ifndef NO_BOOT_TEXT
+bios_boot_message: db "RoadRisc-32  PC BIOS   V 1.0   2026/6/17", 0x00
 align 4
-bios_copyright_message: db "(C) Lemon 2026", 0x00
+bios_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
 align 4
-bios_memcheck_mesage: db "Kb Okay", 0x00
+bios_memfree_mesage: db "KB Free", 0x00
 align 4
-bios_cpuver_mesage: db "CPU Ver", 0x00
+bios_memtotal_mesage: db "KB Total", 0x00
+align 4
+bios_cpuver_mesage: db "CPU Ver ", 0x00
+align 4
+bios_virtual_mesage: db " (Virtual)", 0x00
 align 4
 bios_uart_message: db "Waiting for UART packets...", 0x00
 align 4
-bios_comptime_message: db "Assemble date ", __TIMESTAMP__, 0x00
+bios_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
 align 4
+bios_fonttest: db "!", 0x22, "#$%&'()*+", 0x2c, "-./0123456789:", 0x3b, "<=>?", 0x00
+align 4
+bios_fonttest2: db "@ABCDEFGHIJKLMNOPQRSTUVWXY[\\]^_", 0x00
+align 4
+bios_fonttest3: db "`abcdefghijklmnopqrstuvwxyz{|}~", 0x00
+align 4
+#endif
+
+colour: dd BACKGROUND_COLOUR
 
 extern bios_entry
 bios_entry:
 	mov r0, STACK_TOP
 	mov sp, r0
 
+#ifndef NO_VGA_PALETTE
 	mov r0, VGA_PALETTE_BASE
-	mov r1, 0x0080
+	mov r1, colour
+	mov r1, [r1]
 	mov [r0], r1
+#endif
 
+#ifndef NO_BOOT_TEXT
 	call probe_memory
 	mov r8, r0
 
@@ -67,6 +100,11 @@ bios_entry:
 	mov r2, bios_boot_message
 	call print_str
 
+	mov r0, 88
+	xor r1, r1
+	mov r2, 0x2122
+	call draw_glyph
+
 	xor r0, r0
 	mov r1, 8
 	mov r2, bios_copyright_message
@@ -75,24 +113,32 @@ bios_entry:
 	mov r2, r8
 	xor r0, r0
 	mov r1, 40
-	shl r2, 2
-	sub r2, 10752
+	shr r2, 9
 	call print_number
-	add r0, 8
-	mov r2, bios_memcheck_mesage
+	mov r0, 40
+	mov r2, bios_memtotal_mesage
+	call print_str
+	mov r2, r8
+	xor r0, r0
+	add r1, 8
+	sub r2, 0x2a00
+	shr r2, 9
+	call print_number
+	mov r0, 40
+	mov r2, bios_memfree_mesage
 	call print_str
 
 	xor r0, r0
 	mov r1, 232
 	mov r2, bios_cpuver_mesage
 	call print_str
-	add r0, 8
 	mov r8, RRISC_VERSION_ADDR_HIGH
 	shl r8, 16
 	or r8, RRISC_VERSION_ADDR_LOW
 	mov r8, [r8]
 	shr r2, r8, 16
 	and r2, 0x7fff
+	shr r8, r8, 31
 	call print_number
 	mov r4, r0
 	mov r2, '.'
@@ -101,6 +147,11 @@ bios_entry:
 	add r0, 8
 	and r2, r8, 0xffff
 	call print_number
+	mov r3, 1
+	bneq r3, r8, bios_entry.realcpu
+	mov r2, bios_virtual_mesage
+	call print_str
+bios_entry.realcpu:
 
 	xor r0, r0
 	mov r1, 224
@@ -111,6 +162,20 @@ bios_entry:
 	mov r1, 80
 	mov r2, bios_uart_message
 	call print_str
+
+	xor r0, r0
+	mov r1, 168
+	mov r2, bios_fonttest
+	call print_str
+	xor r0, r0
+	add r1, 8
+	mov r2, bios_fonttest2
+	call print_str
+	xor r0, r0
+	add r1, 8
+	mov r2, bios_fonttest3
+	call print_str
+#endif
 
 	mov r0, UART_STAT
 	mov r1, UART_RX
@@ -171,15 +236,19 @@ bios_entry.load_program.enter.jmptable:
 
 bios_entry.load_program.enter.bin:
 	xor r0, r0
+#ifndef NO_VGA_PALETTE
 	mov r1, VGA_PALETTE_BASE
 	mov [r1], r0
+#endif
 	call fill_screen
 	jmpabs 0x0000
 
 bios_entry.load_program.enter.roadrun:
 	xor r0, r0
+#ifndef NO_VGA_PALETTE
 	mov r1, VGA_PALETTE_BASE
 	mov [r1], r0
+#endif
 	call fill_screen
 	mov r3, [r3 + 3] ; push header->entry_point
 	shr r3, 2
@@ -478,12 +547,11 @@ draw_glyph: ; draw_glyph(x, y, c)
 	push r3
 	push r4
 
-	mov r15, r0
-	push r15
+	mov r4, r0
 	mov r0, r2
 	call locate_glyph
+	mov r15, r4
 
-	pop r15
 	xor r4, r4
 	beq r0, r4, graw_glyph.fail
 
@@ -502,8 +570,8 @@ draw_glyph: ; draw_glyph(x, y, c)
 	call draw_word
 	bneq r0, r4, draw_glyph.draw_loop
 
-draw_glyph.exit:
 	xor r0, r0
+draw_glyph.exit:
 	pop r4
 	pop r3
 	pop r2
@@ -511,7 +579,6 @@ draw_glyph.exit:
 	ret
 
 graw_glyph.fail:
-	pop r0
 	mov r0, 1
 	jmp draw_glyph.exit
 
@@ -521,6 +588,7 @@ locate_glyph: ; locate_glyph(c) - find glyph in font table, return null if not f
 	mov r1, 0x7f
 	blt r1, r0, locate_glyph.flat
 
+#ifndef NO_SUPPORT_UNICODE
 	mov r15, r0
 	mov r13, font_table_end
 	mov r0, font_table_flat_end
@@ -535,6 +603,7 @@ locate_glyph.readloop:
 
 	add r0, r14
 	bneq r0, r13, locate_glyph.readloop
+#endif
 
 locate_glyph.fail:
 	xor r0, r0
@@ -1096,7 +1165,7 @@ db 0b11001100
 db 0b11001100
 db 0b11001100
 db 0b11001100
-db 0b11111100
+db 0b01111000
 db 0b00000000
 
 dw 0x0056, 0x0000
@@ -1510,6 +1579,17 @@ db 0b00000000
 db 0b00000000
 
 font_table_flat_end:
+
+#ifndef NO_SUPPORT_UNICODE
+dw 0x2122, 0x0000
+db 0b11101010
+db 0b01010101
+db 0b01010101
+db 0b00000000
+db 0b00000000
+db 0b00000000
+db 0b00000000
+db 0b00000000
 
 dw 0x0393, 0x0000
 db 0b11111110
@@ -1960,14 +2040,5 @@ dd 0x2e475000
 dd 0xca03b620
 dd 0x70005e00
 dd 0x000dd400
-
-;dw 0xe000, 0x0001
-;dd 0x2338b332
-;dd 0x24bccbb3
-;dd 0x26cbc1c3
-;dd 0x16ac5cb0
-;dd 0x5bbb9ab6
-;dd 0x7a7898b7
-;dd 0x8b8888c7
-;dd 0x7ca778b6
+#endif
 font_table_end:

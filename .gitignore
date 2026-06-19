@@ -1,6 +1,7 @@
 RoadRISC-core
 __pycache__/
 __pycache__
+bios/build/
 # don't commit that stupid binary
 rrvm/rrvm
 rrinterp/
@@ -12,3 +13,4 @@ rrinterp/
 *.roadrun
 *.gtkw
 *.o
+uart-fifo

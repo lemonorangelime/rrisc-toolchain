@@ -1270,6 +1270,7 @@ def preprocess(instruction, offset):
 			preprocessor_hungry = False;
 			if (controldirective["value"] == True):
 				return controldirective["body"].strip();
+			return "";
 
 		if (split_directive[0] == "else" and "else" in preprocessor_accepted):
 			if (len(preprocessor_stack) == 0 or preprocessor_state not in preprocessor_controls):
@@ -1288,6 +1289,7 @@ def preprocess(instruction, offset):
 				preprocessor_hungry = True;
 				preprocessor_state = PREPROCESSOR_IFDEF;
 				return "";
+			return "";
 
 		if ((split_directive[0] == "elifdef" and "elifdef" in preprocessor_accepted) or (split_directive[0] == "elifndef" and "elifndef" in preprocessor_accepted)):
 			query = split_instruction(split_directive[1]);
@@ -1316,6 +1318,7 @@ def preprocess(instruction, offset):
 				preprocessor_hungry = True;
 				preprocessor_state = PREPROCESSOR_IFDEF;
 				return "";
+			return "";
 
 		if ((split_directive[0] == "ifdef" and "ifdef" in preprocessor_accepted)) or split_directive[0] == "ifndef" and "ifndef" in preprocessor_accepted:
 			query = split_instruction(split_directive[1]);
@@ -1332,6 +1335,7 @@ def preprocess(instruction, offset):
 			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
 			preprocessor_hungry = True;
 			preprocessor_state = PREPROCESSOR_IFDEF;
+			return "";
 
 		if (split_directive[0] == "define" and "define" in preprocessor_accepted):
 			macrodef = parse_macrodef(split_directive[1]);
@@ -1349,7 +1353,7 @@ def preprocess(instruction, offset):
 				return "";
 
 			macros[macrodef["name"]] = decode_operand(macrodef["body"]);
-		return "";
+			return "";
 
 	if (preprocessor_hungry):
 		if (len(preprocessor_stack) == 0):
@@ -1382,7 +1386,7 @@ def assemble_instruction(instruction, offset, macro_overrides={}):
 	if (type(instruction) != str):
 		return instruction;
 
-	if ("\n" in instruction):
+	if ("\n" in instruction or instruction.startswith("#")):
 		return assemble_lines(instruction.split('\n'), offset);
 
 	decoded = decode_instruction(instruction, offset, macro_overrides);
@@ -1630,6 +1634,7 @@ if (__name__ == "__main__"):
 	parser.add_argument("-p", "--pad-size", help="pad ASSEMBLY to size (not output file)");
 	parser.add_argument("-z", "--compress", help=compressors_help);
 	parser.add_argument("-l", "--level", help="set compression level [ 1-9 ]");
+	parser.add_argument("-d", "--define", help="define a macro [ -d macro ]");
 	parser.add_argument("-E", "--export-all", help="export all symbols by default (set by --pie)", action="store_true");
 	parser.add_argument("-s", "--no-pic", help="use jmpabs over jrel code (affects code generation)", action="store_true");
 	parser.add_argument("-r", "--pie", help="generate position independent executable (affects linking)", action="store_true");
@@ -1655,4 +1660,7 @@ if (__name__ == "__main__"):
 		set_compression_level(args.level);
 	if (args.compress != None):
 		compressor = args.compress;
+	if (args.define != None):
+		for macro in args.define.split(","):
+			macros[macro] = "1";
 	process_file(args.source);
