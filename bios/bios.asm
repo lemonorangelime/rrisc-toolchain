@@ -6,6 +6,7 @@ org 0x1600
 ; NO_VGA_PALETTE - don't support VGA palette
 ; NO_BOOT_TEXT - don't include boot messages
 ; VERY_SMALL - enable options which reduce size
+; MULLLESS - remove mul instruction
 
 #ifdef VERY_SMALL
 #define NO_SUPPORT_UNICODE 1
@@ -309,11 +310,22 @@ probe_memory.exit:
 
 
 fill_screen: ; fill_screen(colour) fill screen
+#ifndef MULLLESS
 	mov r15, 0x1111
 	shl r15, 16
 	or r15, 0x1111
 	and r13, r0, 0xf
 	mul r15, r13
+#endif
+#ifdef MULLLESS
+	and r13, r0, 0xf
+	shl r15, r13, 4
+	or r15, r13
+	shl r13, r15, 8
+	or r15, r13
+	shl r13, r15, 16
+	or r15, r13
+#endif
 	mov r13, VGA_FB
 	mov r14, VGA_FB_END
 fill_screen.loop:
@@ -347,8 +359,15 @@ print_number.print_digit:
 	shr r15, 4
 	add r13, r15
 
+#ifndef MULLLESS
 	mov r15, 10
 	mul r14, r13, r15
+#endif
+#ifdef MULLLESS
+	shl r14, r13, 3
+	shl r15, r13, 1
+	add r14, r15
+#endif
 	sub r14, r2, r14
 	add r3, 1
 	push r14
@@ -442,8 +461,16 @@ print_str32.loop:
 
 
 find_pixel: ; find_pixel(x, y) - return pixel address in r0
+#ifndef MULLLESS
 	mov r15, VGA_WIDTH
 	mul r15, r1, r15
+#endif
+#ifdef MULLLESS
+	shl r15, r1, 8
+	shl r1, 6
+	add r1, r15
+	mov r15, r1
+#endif
 	add r0, r15
 	shr r0, 3
 	add r0, VGA_FB
@@ -531,8 +558,18 @@ draw_word.bitmap_glyph.broadcast_pixel:
 	or r12, 0x1111
 	and r15, r12
 
+#ifndef MULLLESS
 	mov r12, 0xf
 	mul r15, r12
+#endif
+#ifdef MULLLESS
+	shl r12, r15, 3
+	or r15, r12
+	shl r12, r15, 2
+	or r15, r12
+	shl r12, r15, 1
+	or r15, r12
+#endif
 
 	mov r12, [r14]
 	or r12, r15
@@ -615,9 +652,15 @@ locate_glyph.exit:
 locate_glyph.flat:
 	mov r1, 0x20
 	blt r1, r0, locate_glyph.fail
-	mov r1, 3
 	sub r0, 0x20
+#ifndef MULLLESS
+	mov r1, 3
 	mul r0, r1
+#endif
+#ifdef MULLLESS
+	shl r1, r0, 1
+	add r0, r1
+#endif
 	add r0, font_table
 
 	pop r1

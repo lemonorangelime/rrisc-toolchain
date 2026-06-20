@@ -8,7 +8,9 @@ mkdir -p build/
 ../rrasm/rrasm bios.asm -f elf -o build/bios.elf -w no-entry
 ../rrasm/rrasm bios.asm -d NO_SUPPORT_UNICODE -f elf -o build/bios_ascii.elf -w no-entry
 ../rrasm/rrasm bios.asm -d VERY_SMALL -f elf -o build/bios_small.elf -w no-entry
+../rrasm/rrasm bios.asm -d MULLLESS -f elf -o build/bios_mulless.elf -w no-entry
 ../rrasm/rrasm biosjmp.asm -f elf -o build/biosjmp.elf
 link bios.elf bios
 link bios_ascii.elf bios_ascii
 link bios_small.elf bios_small
+link bios_mulless.elf bios_mulless
