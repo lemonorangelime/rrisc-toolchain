@@ -75,6 +75,10 @@ bios_uart_message: db "Waiting for UART packets...", 0x00
 align 4
 bios_recv: db "Receiving program...", 0x00
 align 4
+bios_expecting: db "Expecting  ", 0x00
+align 4
+bios_got: db "Got        ", 0x00
+align 4
 bios_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
 align 4
 bios_fonttest: db "!", 0x22, "#$%&'()*+", 0x2c, "-./0123456789:", 0x3b, "<=>?", 0x00
@@ -206,6 +210,8 @@ bios_entry.poll_uart:
 	jmp bios_entry.poll_uart
 
 bios_entry.load_program:
+	mov r5, [r1]
+
 #ifndef NO_BOOT_TEXT
 	push r0
 	push r1
@@ -214,12 +220,23 @@ bios_entry.load_program:
 	mov r1, 88
 	mov r2, bios_recv
 	call print_str
+
+	xor r0, r0
+	mov r1, 96
+	mov r2, bios_expecting
+	call print_str
+	mov r2, r5
+	call print_number
+	xor r0, r0
+	mov r1, 104
+	mov r2, bios_got
+	call print_str
+
 	pop r2
 	pop r1
 	pop r0
 #endif
 
-	mov r5, [r1]
 bios_entry.load_program.poll_uart:
 	mov r4, [r0]
 	and r4, r2
@@ -229,6 +246,7 @@ bios_entry.load_program.read_word:
 	mov [r3], r7
 	add r6, 1
 	add r3, 1
+	call update_uart_status
 	bneq r5, r6, bios_entry.load_program.poll_uart
 
 bios_entry.load_program.detect:
@@ -314,6 +332,38 @@ bios_entry.load_program.enter.roadrun.relocate_forward:
 	blt r6, r3, bios_entry.load_program.enter.roadrun.relocate_forward
 	ret
 
+
+
+update_uart_status: ; !!! DOES NOT FOLLOW ABI !!!
+	push r0
+	push r1
+	push r2
+	push r3
+
+	xor r0, r0
+	mov r1, 104
+	call find_pixel
+	mov r3, VGA_STRIDE
+	shl r3, 3
+	add r3, r0
+	xor r2, r2
+update_uart_status.cleanloop:
+	mov [r0], r2
+	add r0, 1
+	blt r3, r0, update_uart_status.cleanloop
+
+	xor r0, r0
+	mov r1, 104
+	mov r2, bios_got
+	call print_str
+	mov r2, r6
+	call print_number
+
+	pop r3
+	pop r2
+	pop r1
+	pop r0
+	ret
 
 
 probe_memory: ; probe_memory()
