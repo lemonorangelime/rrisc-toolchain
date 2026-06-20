@@ -7,11 +7,18 @@ org 0x1600
 ; NO_BOOT_TEXT - don't include boot messages
 ; VERY_SMALL - enable options which reduce size
 ; MULLESS - remove mul instruction
+; SAFE - enable options to increase safety
+; NO_MEMORY_PROBING - don't probe the address space randomly
 
 #ifdef VERY_SMALL
 #define NO_SUPPORT_UNICODE 1
 #define NO_VGA_PALETTE 1
 #define NO_BOOT_TEXT 1
+#endif
+
+#ifdef SAFE
+#define NO_VGA_PALETTE 1
+#define NO_MEMORY_PROBING 1
 #endif
 
 BACKGROUND_COLOUR equ 0x00000080
@@ -56,9 +63,9 @@ bios_boot_message: db "RoadRisc-32  PC BIOS   V 1.0   2026/6/17", 0x00
 align 4
 bios_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
 align 4
-bios_memfree_mesage: db "KB Free", 0x00
+bios_memfree_mesage: db "??    KB Free", 0x00
 align 4
-bios_memtotal_mesage: db "KB Total", 0x00
+bios_memtotal_mesage: db "??    KB Total", 0x00
 align 4
 bios_cpuver_mesage: db "CPU Ver ", 0x00
 align 4
@@ -82,6 +89,7 @@ colour: dd BACKGROUND_COLOUR
 
 extern bios_entry
 bios_entry:
+	xor r12, r12
 	mov r0, STACK_TOP
 	mov sp, r0
 
@@ -92,11 +100,15 @@ bios_entry:
 	mov [r0], r1
 #endif
 
-#ifndef NO_BOOT_TEXT
-	call probe_memory
-	mov r8, r0
+	xor r8, r8
+#ifndef NO_MEMORY_PROBING
+	;call probe_memory
+	;mov r8, r0
+#endif
 
-	mov r0, 0x0
+#ifndef NO_BOOT_TEXT
+
+	xor r0, r0
 	call fill_screen
 
 	xor r0, r0
@@ -114,21 +126,22 @@ bios_entry:
 	mov r2, bios_copyright_message
 	call print_str
 
-	mov r2, r8
 	xor r0, r0
 	mov r1, 40
-	shr r2, 9
-	call print_number
-	mov r0, 40
+	;mov r2, r8
+	;shr r2, 9
+	;call print_number
+	;mov r0, 40
 	mov r2, bios_memtotal_mesage
 	call print_str
-	mov r2, r8
-	xor r0, r0
+	;xor r0, r0
 	add r1, 8
-	sub r2, 0x2a00
-	shr r2, 9
-	call print_number
-	mov r0, 40
+	;mov r2, r8
+	;sub r2, 0x2a00
+	;shr r2, 9
+	;call print_number
+	;mov r0, 40
+	xor r0, r0
 	mov r2, bios_memfree_mesage
 	call print_str
 
