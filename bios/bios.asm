@@ -335,6 +335,7 @@ bios_entry.load_program.enter.roadrun.relocate_forward:
 
 
 update_uart_status: ; !!! DOES NOT FOLLOW ABI !!!
+#ifndef NO_BOOT_TEXT
 	push r0
 	push r1
 	push r2
@@ -363,6 +364,7 @@ update_uart_status.cleanloop:
 	pop r2
 	pop r1
 	pop r0
+#endif
 	ret
 
 
