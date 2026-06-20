@@ -49,6 +49,7 @@ bios_func_table:
 	dd fill_screen
 	dd print_str
 	dd print_str32
+	dd bios_entry
 
 #ifndef NO_BOOT_TEXT
 bios_boot_message: db "RoadRisc-32  PC BIOS   V 1.0   2026/6/17", 0x00
@@ -64,6 +65,8 @@ align 4
 bios_virtual_mesage: db " (Virtual)", 0x00
 align 4
 bios_uart_message: db "Waiting for UART packets...", 0x00
+align 4
+bios_recv: db "Receiving program...", 0x00
 align 4
 bios_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
 align 4
@@ -190,6 +193,19 @@ bios_entry.poll_uart:
 	jmp bios_entry.poll_uart
 
 bios_entry.load_program:
+#ifndef NO_BOOT_TEXT
+	push r0
+	push r1
+	push r2
+	xor r0, r0
+	mov r1, 88
+	mov r2, bios_recv
+	call print_str
+	pop r2
+	pop r1
+	pop r0
+#endif
+
 	mov r5, [r1]
 bios_entry.load_program.poll_uart:
 	mov r4, [r0]

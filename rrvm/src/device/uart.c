@@ -57,6 +57,7 @@ void uart_clock(device_t * device) {
 		if (uart->fifo < 0) {
 			printf("UART - Could not re-open fifo\n");
 		}
+		pstat = poll(&pd, 1, 0);
 	}
 
 	if ((uart->mmio_buffer.status & UART_STAT_RX_READY) != UART_STAT_RX_READY) {

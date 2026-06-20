@@ -9,7 +9,7 @@ if (__name__ == "__main__"):
 	bfd = open(args.blob, "rb");
 	ofd = open(args.output, "wb");
 	blob = bfd.read();
-	blob += b"\x00" * (len(blob) % 4);
+	blob += b"\x00" * (4 - (len(blob) % 4))
 	ofd.write(struct.pack(">I", len(blob) >> 2) + blob);
 	bfd.close();
 	ofd.close();
