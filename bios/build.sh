@@ -11,11 +11,11 @@ rrasm bios.asm -p 43008 -d VERY_SMALL -f elf -o build/bios_small.elf -w no-entry
 rrasm bios.asm -p 43008 -d MULLESS -f elf -o build/bios_mulless.elf -w no-entry
 rrasm bios.asm -p 43008 -d SAFE -f elf -o build/bios_safe.elf -w no-entry
 
-rrasm bios.asm -p 43008 -f bin -o build/bios_raw.bin -w no-entry
-rrasm bios.asm -p 43008 -d NO_SUPPORT_UNICODE -f bin -o build/bios_ascii_raw.bin -w no-entry
-rrasm bios.asm -p 43008 -d VERY_SMALL -f bin -o build/bios_small_raw.bin -w no-entry
-rrasm bios.asm -p 43008 -d MULLESS -f bin -o build/bios_mulless_raw.bin -w no-entry
-rrasm bios.asm -p 43008 -d SAFE -f bin -o build/bios_safe_raw.bin -w no-entry
+rrasm bios.asm -f bin -o build/bios_raw.bin -w no-entry
+rrasm bios.asm -d NO_SUPPORT_UNICODE -f bin -o build/bios_ascii_raw.bin -w no-entry
+rrasm bios.asm -d VERY_SMALL -f bin -o build/bios_small_raw.bin -w no-entry
+rrasm bios.asm -d MULLESS -f bin -o build/bios_mulless_raw.bin -w no-entry
+rrasm bios.asm -d SAFE -f bin -o build/bios_safe_raw.bin -w no-entry
 
 rrasm biosjmp.asm -f elf -o build/biosjmp.elf
 link bios.elf bios
