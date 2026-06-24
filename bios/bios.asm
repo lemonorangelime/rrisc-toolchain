@@ -59,7 +59,9 @@ bios_func_table:
 	dd bios_entry
 
 #ifndef NO_BOOT_TEXT
-bios_boot_message: db "RoadRisc-32  PC BIOS   V 1.0   2026/6/17", 0x00
+; the naivity of our UTF-8 decoder doesn't allow us to encode \u2122 (™), so we use ߿ instead,
+; in the future we should/need/will/must fix this
+bios_boot_message: db "RoadRisc-32߿ PC BIOS   V 1.0   2026/6/17", 0x00
 align 4
 bios_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
 align 4
@@ -86,6 +88,10 @@ align 4
 bios_fonttest2: db "@ABCDEFGHIJKLMNOPQRSTUVWXY[\\]^_", 0x00
 align 4
 bios_fonttest3: db "`abcdefghijklmnopqrstuvwxyz{|}~", 0x00
+align 4
+bios_fonttest_gr: db "ABΓΔEZΘHIKΛMNΞOΠPΣTYΦXΨΩ", 0x00
+align 4
+bios_fonttest2_gr: db "αβγδεζθηικλμvξoπρστυφχψω", 0x00
 align 4
 #endif
 
@@ -119,11 +125,6 @@ bios_entry:
 	xor r1, r1
 	mov r2, bios_boot_message
 	call print_str
-
-	mov r0, 88
-	xor r1, r1
-	mov r2, 0x2122
-	call draw_glyph
 
 	xor r0, r0
 	mov r1, 8
@@ -185,7 +186,7 @@ bios_entry.realcpu:
 	call print_str
 
 	xor r0, r0
-	mov r1, 168
+	mov r1, 152
 	mov r2, bios_fonttest
 	call print_str
 	xor r0, r0
@@ -195,6 +196,15 @@ bios_entry.realcpu:
 	xor r0, r0
 	add r1, 8
 	mov r2, bios_fonttest3
+	call print_str
+
+	xor r0, r0
+	mov r1, 184
+	mov r2, bios_fonttest_gr
+	call print_str
+	xor r0, r0
+	add r1, 8
+	mov r2, bios_fonttest2_gr
 	call print_str
 #endif
 
@@ -477,8 +487,10 @@ print_str: ; print_str(x, y, s)
 	push r5
 	push r4
 	push r3
+	push r12
 	mov r13, r2
 	xor r15, r15
+	xor r12, r12
 
 print_str.readloop:
 	mov r14, [r13]
@@ -492,6 +504,20 @@ print_str.shiftloop:
 	beq r5, r15, print_str.exit
 	sub r4, 8
 
+	beq r12, r15, print_str.firstpoint
+	and r5, 0x3f
+	or r5, r12
+	xor r12, r12
+	jmp print_str.ascii
+print_str.firstpoint: ; no previous extended code point byte
+	and r12, r5, 0b10000000
+	beq r12, r15, print_str.ascii ; is not extended, ascii
+print_str.utf8: ; handle utf8
+	and r12, r5, 0x1f
+	shl r12, 6
+	jmp print_str.advance
+
+print_str.ascii: ; old code path when ascii compatible character
 	push r0
 	push r13
 	push r14
@@ -504,11 +530,14 @@ print_str.shiftloop:
 	pop r0
 	add r0, 8
 
+	xor r12, r12
+print_str.advance:
 	bneq r3, r4, print_str.shiftloop
 	add r13, 1
 	jmp print_str.readloop
 
 print_str.exit:
+	pop r12
 	pop r3
 	pop r4
 	pop r5
@@ -1705,16 +1734,6 @@ db 0b00000000
 font_table_flat_end:
 
 #ifndef NO_SUPPORT_UNICODE
-dw 0x2122, 0x0000
-db 0b11101010
-db 0b01010101
-db 0b01010101
-db 0b00000000
-db 0b00000000
-db 0b00000000
-db 0b00000000
-db 0b00000000
-
 dw 0x0393, 0x0000
 db 0b11111110
 db 0b11000000
@@ -1815,7 +1834,7 @@ db 0b01111100
 db 0b00010000
 db 0b00010000
 
-dw 0x03a7, 0x0000
+dw 0x03a8, 0x0000
 db 0b11010110
 db 0b11010110
 db 0b11010110
@@ -1825,7 +1844,7 @@ db 0b00010000
 db 0b00010000
 db 0b00010000
 
-dw 0x03a8, 0x0000
+dw 0x03a9, 0x0000
 db 0b01111100
 db 0b11000110
 db 0b11000110
@@ -2125,27 +2144,7 @@ db 0b01111100
 db 0b00010000
 db 0b00010000
 
-dw 0x03c0, 0x0000
-db 0b00000000
-db 0b00000000
-db 0b01101100
-db 0b11000110
-db 0b11000110
-db 0b11010110
-db 0b01101100
-db 0b00000000
-
-dw 0x03c0, 0x0000
-db 0b00000000
-db 0b00000000
-db 0b01101100
-db 0b11000110
-db 0b11000110
-db 0b11010110
-db 0b01101100
-db 0b00000000
-
-dw 0x03c0, 0x0000
+dw 0x03c9, 0x0000
 db 0b00000000
 db 0b00000000
 db 0b01101100
@@ -2164,5 +2163,15 @@ dd 0x2e475000
 dd 0xca03b620
 dd 0x70005e00
 dd 0x000dd400
+
+dw 0x07ff, 0x0000
+db 0b11101010
+db 0b01010101
+db 0b01010101
+db 0b00000000
+db 0b00000000
+db 0b00000000
+db 0b00000000
+db 0b00000000
 #endif
 font_table_end:
