@@ -105,6 +105,7 @@ encodings = {
 	"blt":	{"opcode": 0x13, "args": 3, "encoding": "dar"},
 	"jmp":	{"opcode": 0x14, "args": 1, "encoding": "i"},
 	"jal":	{"opcode": 0x15, "args": 2, "encoding": "di"},
+	"jalr":	{"opcode": 0x15, "args": 2, "encoding": "dr"},
 	"jrel":	{"opcode": 0x16, "args": 1, "encoding": "r"},
 	"ldi":	{"opcode": 0x17, "args": 2, "encoding": "di"},
 	"bneq":	{"opcode": 0x18, "args": 3, "encoding": "dar"},
