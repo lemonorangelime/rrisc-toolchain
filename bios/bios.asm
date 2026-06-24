@@ -57,6 +57,7 @@ bios_func_table:
 	dd print_str
 	dd print_str32
 	dd bios_entry
+	dd print_number
 
 #ifndef NO_BOOT_TEXT
 ; the naivity of our UTF-8 decoder doesn't allow us to encode \u2122 (™), so we use ߿ instead,
