@@ -156,8 +156,8 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			break;
 
 		case OP_MULL: REGISTER(instruction.dest) = htonl(RREGISTER(instruction.reg_a) * RREGISTER(instruction.reg_b)); break;
-			case OP_MULH: {
-			uint64_t result64 = RREGISTER(instruction.reg_a) * RREGISTER(instruction.reg_b);
+		case OP_MULH: {
+			uint64_t result64 = ((uint64_t) RREGISTER(instruction.reg_a)) * ((uint64_t ) RREGISTER(instruction.reg_b));
 			uint32_t result = (uint32_t) (result64 >> 32llu);
 			REGISTER(instruction.dest) = htonl(result); break;
 		}
