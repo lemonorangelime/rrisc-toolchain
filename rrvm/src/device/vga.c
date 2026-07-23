@@ -164,6 +164,6 @@ device_t * vga_create_device() {
 }
 
 device_interface_t DEVICE_INTERFACE vga_device_interface = {
-	.name = "vga",
+	.name = "rrisc-vga",
 	.create = vga_create_device,
 };

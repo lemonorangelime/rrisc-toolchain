@@ -28,9 +28,9 @@ VGA_FB_END equ 0x4000
 VGA_WIDTH equ 320
 VGA_STRIDE equ 40
 
-UART_RX equ 0xfff1
-UART_TX equ 0xfff2
-UART_STAT equ 0xfff0
+UART_RX_ADDR equ 0xfff1
+UART_TX_ADDR equ 0xfff2
+UART_STAT_ADDR equ 0xfff0
 
 UART_STAT_RX_READY equ 0b00000001
 UART_STAT_TX_READY equ 0b00000010
@@ -62,37 +62,37 @@ bios_func_table:
 #ifndef NO_BOOT_TEXT
 ; the naivity of our UTF-8 decoder doesn't allow us to encode \u2122 (™), so we use ߿ instead,
 ; in the future we should/need/will/must fix this
-bios_boot_message: db "RoadRisc-32߿ PC BIOS   V 1.0   2026/6/17", 0x00
+bios_str_boot_message: db "RoadRisc-32߿ PC BIOS   V 1.0   2026/6/17", 0x00
 align 4
-bios_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
+bios_str_copyright_message: db "Copyright (C) 2026  Stupid Gay Idiot.", 0x00
 align 4
-bios_memfree_mesage: db "??    KB Free", 0x00
+bios_str_memfree_mesage: db "??    KB Free", 0x00
 align 4
-bios_memtotal_mesage: db "??    KB Total", 0x00
+bios_str_memtotal_mesage: db "??    KB Total", 0x00
 align 4
-bios_cpuver_mesage: db "CPU Ver ", 0x00
+bios_str_cpuver_mesage: db "CPU Ver ", 0x00
 align 4
-bios_virtual_mesage: db " (Virtual)", 0x00
+bios_str_virtual_mesage: db " (Virtual)", 0x00
 align 4
-bios_uart_message: db "Waiting for UART packets...", 0x00
+bios_str_uart_message: db "Waiting for UART packets...", 0x00
 align 4
-bios_recv: db "Receiving program...", 0x00
+bios_str_recv: db "Receiving program...", 0x00
 align 4
-bios_expecting: db "Expecting  ", 0x00
+bios_str_expecting: db "Expecting  ", 0x00
 align 4
-bios_got: db "Got        ", 0x00
+bios_str_got: db "Got        ", 0x00
 align 4
-bios_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
+bios_str_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
 align 4
-bios_fonttest: db "!", 0x22, "#$%&'()*+", 0x2c, "-./0123456789:", 0x3b, "<=>?", 0x00
+bios_str_fonttest: db "!", 0x22, "#$%&'()*+", 0x2c, "-./0123456789:", 0x3b, "<=>?", 0x00
 align 4
-bios_fonttest2: db "@ABCDEFGHIJKLMNOPQRSTUVWXY[\\]^_", 0x00
+bios_str_fonttest2: db "@ABCDEFGHIJKLMNOPQRSTUVWXY[\\]^_", 0x00
 align 4
-bios_fonttest3: db "`abcdefghijklmnopqrstuvwxyz{|}~", 0x00
+bios_str_fonttest3: db "`abcdefghijklmnopqrstuvwxyz{|}~", 0x00
 align 4
-bios_fonttest_gr: db "ABΓΔEZΘHIKΛMNΞOΠPΣTYΦXΨΩ", 0x00
+bios_str_fonttest_gr: db "ABΓΔEZΘHIKΛMNΞOΠPΣTYΦXΨΩ", 0x00
 align 4
-bios_fonttest2_gr: db "αβγδεζθηικλμvξoπρστυφχψω", 0x00
+bios_str_fonttest2_gr: db "αβγδεζθηικλμvξoπρστυφχψω", 0x00
 align 4
 #endif
 
@@ -124,12 +124,12 @@ bios_entry:
 
 	xor r0, r0
 	xor r1, r1
-	mov r2, bios_boot_message
+	mov r2, bios_str_boot_message
 	call print_str
 
 	xor r0, r0
 	mov r1, 8
-	mov r2, bios_copyright_message
+	mov r2, bios_str_copyright_message
 	call print_str
 
 	xor r0, r0
@@ -138,7 +138,7 @@ bios_entry:
 	;shr r2, 9
 	;call print_number
 	;mov r0, 40
-	mov r2, bios_memtotal_mesage
+	mov r2, bios_str_memtotal_mesage
 	call print_str
 	;xor r0, r0
 	add r1, 8
@@ -148,12 +148,12 @@ bios_entry:
 	;call print_number
 	;mov r0, 40
 	xor r0, r0
-	mov r2, bios_memfree_mesage
+	mov r2, bios_str_memfree_mesage
 	call print_str
 
 	xor r0, r0
 	mov r1, 232
-	mov r2, bios_cpuver_mesage
+	mov r2, bios_str_cpuver_mesage
 	call print_str
 	mov r8, RRISC_VERSION_ADDR_HIGH
 	shl r8, 16
@@ -172,45 +172,45 @@ bios_entry:
 	call print_number
 	mov r3, 1
 	bneq r3, r8, bios_entry.realcpu
-	mov r2, bios_virtual_mesage
+	mov r2, bios_str_virtual_mesage
 	call print_str
 bios_entry.realcpu:
 
 	xor r0, r0
 	mov r1, 224
-	mov r2, bios_comptime_message
+	mov r2, bios_str_comptime_message
 	call print_str
 
 	xor r0, r0
 	mov r1, 80
-	mov r2, bios_uart_message
+	mov r2, bios_str_uart_message
 	call print_str
 
 	xor r0, r0
 	mov r1, 152
-	mov r2, bios_fonttest
+	mov r2, bios_str_fonttest
 	call print_str
 	xor r0, r0
 	add r1, 8
-	mov r2, bios_fonttest2
+	mov r2, bios_str_fonttest2
 	call print_str
 	xor r0, r0
 	add r1, 8
-	mov r2, bios_fonttest3
+	mov r2, bios_str_fonttest3
 	call print_str
 
 	xor r0, r0
 	mov r1, 184
-	mov r2, bios_fonttest_gr
+	mov r2, bios_str_fonttest_gr
 	call print_str
 	xor r0, r0
 	add r1, 8
-	mov r2, bios_fonttest2_gr
+	mov r2, bios_str_fonttest2_gr
 	call print_str
 #endif
 
-	mov r0, UART_STAT
-	mov r1, UART_RX
+	mov r0, UART_STAT_ADDR
+	mov r1, UART_RX_ADDR
 	mov r2, UART_STAT_RX_READY
 	xor r3, r3
 	xor r6, r6
@@ -229,18 +229,18 @@ bios_entry.load_program:
 	push r2
 	xor r0, r0
 	mov r1, 88
-	mov r2, bios_recv
+	mov r2, bios_str_recv
 	call print_str
 
 	xor r0, r0
 	mov r1, 96
-	mov r2, bios_expecting
+	mov r2, bios_str_expecting
 	call print_str
 	mov r2, r5
 	call print_number
 	xor r0, r0
 	mov r1, 104
-	mov r2, bios_got
+	mov r2, bios_str_got
 	call print_str
 
 	pop r2
@@ -314,7 +314,7 @@ bios_entry.load_program.enter.roadrun:
 	push r3
 
 	xor r3, r3
-	mov r3, [r3 + 2] ; r0 = vmembase + (size - 1), r3 = vmembase
+	mov r3, [r3 + 2] ; r0 = vmembase + (size - 1 - sizeof(header)), r3 = vmembase
 	shr r3, 2
 	add r0, r3, r6
 	sub r0, 5
@@ -333,7 +333,7 @@ bios_entry.load_program.enter.roadrun.relocate_backward:
 	sub r0, 1
 	sub r1, 1
 	bneq r1, r2, bios_entry.load_program.enter.roadrun.relocate_backward
-	ret
+	ret ; entry point is on stack (see first comment)
 
 bios_entry.load_program.enter.roadrun.relocate_forward:
 	mov r5, [r4]
@@ -341,7 +341,7 @@ bios_entry.load_program.enter.roadrun.relocate_forward:
 	add r3, 1
 	add r4, 1
 	blt r6, r3, bios_entry.load_program.enter.roadrun.relocate_forward
-	ret
+	ret ; entry point is on stack (see first comment)
 
 
 
@@ -366,7 +366,7 @@ update_uart_status.cleanloop:
 
 	xor r0, r0
 	mov r1, 104
-	mov r2, bios_got
+	mov r2, bios_str_got
 	call print_str
 	mov r2, r6
 	call print_number
@@ -408,8 +408,8 @@ fill_screen: ; fill_screen(colour) fill screen
 	or r15, 0x1111
 	and r13, r0, 0xf
 	mul r15, r13
-#endif
-#ifdef MULLESS
+#endif ; #else directive is borken in rrasm, PLS FIX
+#ifdef MULLLESS
 	and r13, r0, 0xf
 	shl r15, r13, 4
 	or r15, r13
@@ -564,7 +564,7 @@ print_str32.loop:
 	pop r0
 
 	add r0, 8
-	blt r13, r14, print_str32.loop	
+	blt r13, r14, print_str32.loop
 
 	pop r2
 	ret

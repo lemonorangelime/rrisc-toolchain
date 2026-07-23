@@ -14,3 +14,6 @@ rrinterp/
 *.gtkw
 *.o
 uart-fifo
+
+# deprecated, see rrisc BIOS
+stdlib/

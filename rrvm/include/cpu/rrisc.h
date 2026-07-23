@@ -18,6 +18,7 @@ typedef struct {
 	rrisc_registers_t registers;
 	int state;
 	int halt;
+	int stall_cycles;
 } rrisc_cpu_t;
 
 
@@ -81,8 +82,8 @@ enum {
 	OP_HALT = 0xFF
 };
 
-#define RRISC_VERSION_MINOR 1
-#define RRISC_VERSION_MAJOR 0
+#define RRISC_VERSION_MINOR 3
+#define RRISC_VERSION_MAJOR 1
 #define RRISC_VERSION		0x80000000 | (RRISC_VERSION_MAJOR << 16) | RRISC_VERSION_MINOR
 #define RRISC_IDENTIFIER	0x4d565252
 

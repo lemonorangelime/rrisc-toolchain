@@ -136,7 +136,7 @@ system_t * system_create() {
 
 	// create and attach devices...
 	// for testing: hardcode vga controller and uart
-	device_interface_t * vga_interface = lookup_dev_interface("vga");
+	device_interface_t * vga_interface = lookup_dev_interface("rrisc-vga");
 	device_interface_t * uart_interface = lookup_dev_interface("uart");
 	device_t * vga = vga_interface->create();
 	device_t * uart = uart_interface->create();

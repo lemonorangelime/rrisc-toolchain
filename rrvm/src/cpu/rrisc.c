@@ -51,10 +51,34 @@ void dump_registers(rrisc_cpu_t * rrisc_cpu) {
 	printf("\n\n");
 }
 
+int rrisc_cpu_stall_cycles(uint8_t opcode) {
+	switch (opcode) {
+		case OP_LD:
+		case OP_ST:
+		case OP_PUSH:
+		case OP_POP:
+		case OP_CALL:
+		case OP_IRET: // future instruction
+		case OP_RET:
+		case OP_LDIO: // obselete, 
+		case OP_STIO:
+			return 4; // FETCH - DECODE - EXECUTE - TRANSFER
+	}
+	return 3; // FETCH - DECODE - EXECUTE
+}
+
 void rrisc_cpu_clock(cpu_t * cpu) {
 	rrisc_cpu_t * rrisc_cpu = (rrisc_cpu_t *) cpu;
 	if (rrisc_cpu->halt) {
 		return;
+	}
+
+	if (rrisc_cpu->stall_cycles > 0) {
+		if (option_trace) {
+			printf("STALL\n\n");
+		}
+		rrisc_cpu->stall_cycles -= 1;
+		return; // stall
 	}
 
 	rrisc_instruction_t instruction;
@@ -179,6 +203,7 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 			break;
 	}
 
+	rrisc_cpu->stall_cycles = rrisc_cpu_stall_cycles(instruction.opcode);
 	rrisc_cpu->registers.tsc += 1;
 	rrisc_cpu->registers.pc = pc_next;
 	rrisc_cpu->registers.sp = sp_next;
@@ -196,6 +221,7 @@ cpu_t * rrisc_cpu_create() {
 	cpu->cpu.port_count = 2;
 	cpu->mem_bus = NULL;
 	cpu->io_bus = NULL;
+	cpu->stall_cycles = 5; // stall for 5 seconds on boot like real hardware (at least in the past?)
 	cpu->halt = 0;
 
 	memset(&cpu->registers, 0, sizeof(cpu->registers));

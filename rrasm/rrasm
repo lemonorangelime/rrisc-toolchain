@@ -70,7 +70,10 @@ ERR_GENERIC = -0xff;
 
 # instruction encoding table
 
-## encoding options
+## "encoding letter" options
+#
+## Name - Letter = Meaning
+#
 # Destination     - d = Rd
 # Register A      - a = Ra
 # Register B      - b = Rb
@@ -81,8 +84,8 @@ ERR_GENERIC = -0xff;
 #
 ## Obselete encodings
 #
-# Control (A)     - c = ctrl[Ra]
-# Control (D)     - C = ctrl[Rd]
+# Control (A)     - c = ctrlregs[Ra]
+# Control (D)     - C = ctrlregs[Rd]
 encodings = {
 	"nop":	{"opcode": 0x00, "args": 0, "encoding": ""},
 	"add":	{"opcode": 0x02, "args": 3, "encoding": "dab"},

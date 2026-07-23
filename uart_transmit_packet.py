@@ -2,7 +2,7 @@ import argparse;
 import struct;
 
 if (__name__ == "__main__"):
-	parser = argparse.ArgumentParser(prog="transmitter", description="Transmit Binary Blob over UART to rrisc bios");
+	parser = argparse.ArgumentParser(prog="transmitter", description="Transmit Binary Blob over UART to rrisc BIOS with packet header");
 	parser.add_argument("blob");
 	parser.add_argument("-o", "--output", help="output pipe");
 	args = parser.parse_args();
