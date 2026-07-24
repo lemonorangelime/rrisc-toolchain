@@ -7,7 +7,10 @@ import pathlib;
 try:
 	rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/../rrasm/rrasm").load_module();
 except:
-	rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/rrasm").load_module();
+	try:
+		rrasm = importlib.machinery.SourceFileLoader("rrasm", str(pathlib.Path(__file__).resolve().parent) + "/rrasm").load_module();
+	except:
+		rrasm = importlib.machinery.SourceFileLoader("rrasm", "/usr/local/share/rrasm/rrasm.py").load_module();
 
 ELF_SECTION_TYPE_NULL = 0x00000000;
 ELF_SECTION_TYPE_PROGBIT = 0x00000001;
@@ -18,6 +21,9 @@ ELF_SECTION_TYPE_DYNSYM = 0x0000000b;
 ELF_ASSEMBLY_TYPE_NULL = 0x00000000;
 ELF_ASSEMBLY_TYPE_LOAD = 0x00000001;
 ELF_ASSEMBLY_TYPE_SYMTABLE = 0x60000000;
+
+# in order: [ELF_MACHINE_RRISC32]
+RRLD_SUPPORTED_MACHINES = [0x23];
 
 default_comment = b"rrld rrisc linker (rrld v1.0)"; # this is variable unlike rrasm (dont_strip_comment)
 comment = default_comment;
@@ -494,7 +500,7 @@ def process_file(filename, binary):
 		print_error("error", "process_file(): Bad ELF type, must be relocatable");
 		raise Exception;
 
-	if (struct.unpack(">H", binary[0x12:0x14])[0] != rrasm.ELF_MACHINE_TYPE):
+	if (struct.unpack(">H", binary[0x12:0x14])[0] not in RRLD_SUPPORTED_MACHINES):
 		print_error("error", "process_file(): Bad ELF machine type, must be rrisc (%s)" % rrasm.ELF_MACHINE_TYPE);
 		raise Exception;
 

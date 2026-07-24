@@ -14,3 +14,6 @@ mov r0, [r0 + 'a']
 mov r0, [r0 + 0x12]
 mov r1, r0
 mov r14, r4
+mov r0, [r1 + 0x3a4 + 0x3a4 + 0x3a4 + 0x3a4 + 0x3a4]
+mov r3, [r2 + 0xb00b]
+mov r2, [r1]
