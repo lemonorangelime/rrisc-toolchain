@@ -29,47 +29,41 @@ class RRISC32():
 		# Control (A)     - c = ctrlregs[Ra]
 		# Control (D)     - C = ctrlregs[Rd]
 		self.encodings = {
-			"nop":	{"opcode": 0x00, "args": 0, "encoding": ""},
-			"add":	{"opcode": 0x02, "args": 3, "encoding": "dab"},
-			"addi":	{"opcode": 0x03, "args": 3, "encoding": "dai"},
-			"sub":	{"opcode": 0x04, "args": 3, "encoding": "dab"},
-			"subi":	{"opcode": 0x05, "args": 3, "encoding": "dai"},
-			"and":	{"opcode": 0x06, "args": 3, "encoding": "dab"},
-			"andi":	{"opcode": 0x07, "args": 3, "encoding": "dai"},
-			"or":	{"opcode": 0x08, "args": 3, "encoding": "dab"},
-			"ori":	{"opcode": 0x09, "args": 3, "encoding": "dai"},
-			"xor":	{"opcode": 0x0a, "args": 3, "encoding": "dab"},
-			"xori":	{"opcode": 0x0b, "args": 3, "encoding": "dai"},
-			"shl":	{"opcode": 0x0c, "args": 3, "encoding": "dab"},
-			"shli": {"opcode": 0x0d, "args": 3, "encoding": "dai"},
-			"shr":	{"opcode": 0x0e, "args": 3, "encoding": "dab"},
-			"shri":	{"opcode": 0x0f, "args": 3, "encoding": "dai"},
-			"ld":	{"opcode": 0x10, "args": 2, "encoding": "dm"},
-			"st":	{"opcode": 0x11, "args": 2, "encoding": "Ma"},
-			"beq":	{"opcode": 0x12, "args": 3, "encoding": "dar"},
-			"blt":	{"opcode": 0x13, "args": 3, "encoding": "dar"},
-			"jmp":	{"opcode": 0x14, "args": 1, "encoding": "i"},
-			"jal":	{"opcode": 0x15, "args": 2, "encoding": "di"},
-			"jalr":	{"opcode": 0x15, "args": 2, "encoding": "dr"},
-			"jrel":	{"opcode": 0x16, "args": 1, "encoding": "r"},
-			"ldi":	{"opcode": 0x17, "args": 2, "encoding": "di"},
-			"bneq":	{"opcode": 0x18, "args": 3, "encoding": "dar"},
-		#	"bgt":	{"opcode": 0x19, "args": 3, "encoding": "dar"},
-			"lds":	{"opcode": 0x1a, "args": 1, "encoding": "d"},
-			"sts":	{"opcode": 0x1b, "args": 1, "encoding": "a"},
-			"push":	{"opcode": 0x1c, "args": 1, "encoding": "a"},
-			"pop":	{"opcode": 0x1d, "args": 1, "encoding": "d"},
-			"call":	{"opcode": 0x1e, "args": 1, "encoding": "r"},
-			"ret":	{"opcode": 0x1f, "args": 0, "encoding": ""},
+			"nop":		{"opcode": 0x00, "args": 0, "encoding": ""},
+			"add":		{"opcode": 0x02, "args": 3, "encoding": "dab"},
+			"addi":		{"opcode": 0x03, "args": 3, "encoding": "dai"},
+			"sub":		{"opcode": 0x04, "args": 3, "encoding": "dab"},
+			"subi":		{"opcode": 0x05, "args": 3, "encoding": "dai"},
+			"and":		{"opcode": 0x06, "args": 3, "encoding": "dab"},
+			"andi":		{"opcode": 0x07, "args": 3, "encoding": "dai"},
+			"or":		{"opcode": 0x08, "args": 3, "encoding": "dab"},
+			"ori":		{"opcode": 0x09, "args": 3, "encoding": "dai"},
+			"xor":		{"opcode": 0x0a, "args": 3, "encoding": "dab"},
+			"xori":		{"opcode": 0x0b, "args": 3, "encoding": "dai"},
+			"shl":		{"opcode": 0x0c, "args": 3, "encoding": "dab"},
+			"shli": 	{"opcode": 0x0d, "args": 3, "encoding": "dai"},
+			"shr":		{"opcode": 0x0e, "args": 3, "encoding": "dab"},
+			"shri":		{"opcode": 0x0f, "args": 3, "encoding": "dai"},
+			"ld":		{"opcode": 0x10, "args": 2, "encoding": "dm"},
+			"st":		{"opcode": 0x11, "args": 2, "encoding": "Ma"},
+			"beq":		{"opcode": 0x12, "args": 3, "encoding": "dar"},
+			"blt":		{"opcode": 0x13, "args": 3, "encoding": "dar"},
+			"jmpabs":	{"opcode": 0x14, "args": 1, "encoding": "i"},
+			"jal":		{"opcode": 0x15, "args": 2, "encoding": "di"},
+			"jrel":		{"opcode": 0x16, "args": 1, "encoding": "r"},
+			"ldi":		{"opcode": 0x17, "args": 2, "encoding": "di"},
+			"bneq":		{"opcode": 0x18, "args": 3, "encoding": "dar"},
+		#	"bgt":		{"opcode": 0x19, "args": 3, "encoding": "dar"},
+			"lds":		{"opcode": 0x1a, "args": 1, "encoding": "d"},
+			"sts":		{"opcode": 0x1b, "args": 1, "encoding": "a"},
+			"push":		{"opcode": 0x1c, "args": 1, "encoding": "a"},
+			"pop":		{"opcode": 0x1d, "args": 1, "encoding": "d"},
+			"call":		{"opcode": 0x1e, "args": 1, "encoding": "r"},
+			"ret":		{"opcode": 0x1f, "args": 0, "encoding": ""},
 
 			"mulu":	{"opcode": 0x43, "args": 3, "encoding": "dab"},
 			"mull":	{"opcode": 0x44, "args": 3, "encoding": "dab"},
 
-			# ...
-			"iret":	{"opcode": 0x22, "args": 0, "encoding": ""},
-			"ldio":	{"opcode": 0x23, "args": 2, "encoding": "da"},
-			"stio":	{"opcode": 0x24, "args": 2, "encoding": "da"},
-			"jreg": {"opcode": 0x25, "args": 1, "encoding": "d"},
 			"halt":	{"opcode": 0xff, "args": 0, "encoding": ""},
 		};
 
@@ -131,7 +125,6 @@ class RRISC32():
 			"mulh": {"args": [2, 3], "resolve": lambda a, b, c=False: self.mul_virtual_resolver(a, b, c, False, "mulh")},
 
 			"jmp": {"args": [1], "resolve": self.jmp_virtual_instruction},
-			"jmpabs": {"args": [1], "resolve": self.jmpabs_virtual_instruction},
 			"out": {"args": [2], "resolve": self.out_virtual_instruction},
 			"in": {"args": [2], "resolve": self.in_virtual_instruction},
 			"bgt": {"args": [3], "resolve": self.bgt_virtual_instruction},
@@ -153,6 +146,12 @@ class RRISC32():
 			return {"type": "instruction", "name": "ld"};
 
 		if (a["type"] == "reg" and (b["type"] == "int" or b["type"] == "sym")):
+			if (b["type"] == "int" and self.rrasm.hlvi and self.rrasm.int_bound_check(b["value"], 16, 0)):
+				return [ # hlvi for ldi Rd, #imm32
+					{"type": "instruction", "name": "ldi", "operands": [a, self.rrasm.int_shiftmask(b, 16, 0xffff)]},
+					{"type": "instruction", "name": "shli", "operands": [a, a, self.rrasm.decode_operand("16")]},
+					{"type": "instruction", "name": "ori", "operands": [a, a, self.rrasm.int_shiftmask(b, 0, 0xffff)]}
+				];
 			return {"type": "instruction", "name": "ldi"};
 
 		if (a["type"] == "reg" and b["type"] == "ctrl"):
@@ -169,19 +168,20 @@ class RRISC32():
 
 		return {"type": "error", "value": self.rrasm.ERR_UNSUPPORTED_ARGS};
 
-	# `jmp` instruction virtual resolver, resolve to jrel or jmp depending on pic settings
+	# `jmp` instruction virtual resolver, resolve to jrel or jmpabs depending on pic settings
 	def jmp_virtual_instruction(self, a):
 		if (a["type"] == "reg"):
+			if (self.rrasm.hlvi and "jreg" not in self.encodings):
+				return [ # hlvi for jmp Rd (jreg-less)
+					{"type": "instruction", "name": "push", "operands": [a]},
+					{"type": "instruction", "name": "ret", "operands": []}
+				];
 			return {"type": "instruction", "name": "jreg"};
 
 		if (self.rrasm.pic):
 			return {"type": "instruction", "name": "jrel"};
 
-		return {"type": "instruction", "name": "jmp"};
-
-	# `jmpabs` instruction virtual resolver, resolve to jmp always regardless of pic
-	def jmpabs_virtual_instruction(self, a):
-		return {"type": "instruction", "name": "jmp"};
+		return {"type": "instruction", "name": "jmpabs"};
 
 	# `out` instruction virtual resolver, resolve to stio always
 	def out_virtual_instruction(self, a, b):
@@ -349,10 +349,92 @@ class RRISC32():
 
 		return bytes(serialised);
 
+	def disassemble_reg(self, regnum):
+		for register in self.registers.items():
+			if (register[1]["value"] == regnum):
+				return register[0];
+
+		return "r?"; # unreachable
+
+	def disassemble_pretty_format_int(self, val):
+		if (val < 32):
+			return str(val);
+		return "0x" + hex(val)[2:].zfill(4);
+
+	def disassemble_letter(self, binary, letter, literal=False):
+		ins_op_p0 = binary[1];
+		ins_op_p1 = binary[2];
+		ins_op_p2 = binary[3];
+
+		ins_reg_d = self.disassemble_reg(ins_op_p0 >> 4);
+		ins_reg_a = self.disassemble_reg(ins_op_p0 & 0xf);
+		ins_reg_b = self.disassemble_reg(ins_op_p1 >> 4);
+		ins_imm = self.disassemble_pretty_format_int((ins_op_p1 << 8) | ins_op_p2);
+		ins_imm_r = struct.unpack(">h", binary[2:4]);
+
+		if (letter == "d"):
+			return ins_reg_d;
+		elif (letter == "a"):
+			return ins_reg_a;
+		elif (letter == "b"):
+			return ins_reg_b;
+		elif (letter == "i"):
+			return ins_imm;
+		elif (letter == "m"):
+			return "[%s + %s]" % (ins_reg_a, ins_imm);
+		elif (letter == "M"):
+			return "[%s + %s]" % (ins_reg_d, ins_imm);
+		elif (letter == "r"):
+			if (literal):
+				return "%s" % (ins_imm_r);
+			else:
+				return "pc + %s" % (ins_imm_r);
+		else:
+			return "?";
+
+	def disassemble(self, binary, literal=False):
+		if (len(binary) < 4):
+			print("...");
+			return len(binary);
+
+		dis_name = "dd %s" % self.disassemble_pretty_format_int(struct.unpack(">I", binary[0:4])[0]);
+		dis_ops = "";
+
+		opcode = binary[0];
+		enctype = "";
+		for encoding in self.encodings.items():
+			if (encoding[1]["opcode"] == opcode):
+				dis_name = encoding[0];
+				if (literal == True and dis_name == "jmp"):
+					dis_name = "jmpabs";
+
+				enctype = encoding[1]["encoding"];
+				break;
+		
+		for letter in enctype:
+			dis_ops = dis_ops + self.disassemble_letter(binary, letter, literal) + ", ";
+
+		dis_ops = dis_ops.strip()[:-1]
+
+		print(dis_name, dis_ops);
+
+		return 4;
+
+class RRISC32_FUTURE(RRISC32):
+	def __init__(self, rrasm):
+		super().__init__(rrasm);
+		# tbd: jal becomes relative (like this) OR new seperate `jalr` instruction
+		self.encodings["jal"] = {"opcode": 0x15, "args": 2, "encoding": "dr"},
+		self.encodings["iret"] = {"opcode": 0x22, "args": 0, "encoding": ""};
+		self.encodings["jreg"] = {"opcode": 0x25, "args": 1, "encoding": "d"};
+		# "ldio": {"opcode": 0x23, "args": 2, "encoding": "da"},
+		# "stio": {"opcode": 0x24, "args": 2, "encoding": "da"},
+
 
 # cpu table
 cpu_table = {
 	"rrisc32": RRISC32,
+	"rrisc32-future": RRISC32_FUTURE,
 };
 
 # default option

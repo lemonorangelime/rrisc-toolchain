@@ -121,6 +121,16 @@ def int_forcecast(s, signed=False):
 		return int.from_bytes(bytes(s["value"], "utf-8"), byteorder="big", signed=signed);
 	raise NotImplementedError;
 
+# shift and mask integer (acceptts objects)
+def int_shiftmask(i, shift, mask):
+	if (type(i) == int):
+		return {"type": "int", "value": (i >> shift) & mask};
+	if (type(i) == dict and "type" in i):
+		if (i["type"] != "int"):
+			raise NotImplementedError;
+		return {"type": "int", "value": (i["value"] >> shift) & mask};
+	raise NotImplementedError;
+
 # print error
 def print_error(warntype, text, ignoreflag=False):
 	if (ignoreflag != False):
@@ -752,49 +762,6 @@ def decode_mem_operand(operand):
 	decoded_components = precompute_mem_operand_components(decoded_components);
 
 	return {"type": "mem", "value": decoded_components};
-"""
-	# [0x1234]
-	# [X + 0x1234]
-	# [Y + 0x1234]
-	# [0x34]
-	# [X + 0x34]
-	# [Y + 0x34]
-	# [[0x1234]]
-	# [[0x34]]		; 65c02
-	# [[X + 0x1234]]	; 65c02
-	# [[Y + 0x1234]]	; 65c02
-	# [[X + 0x34]]
-	# [Y + [0x34]]
-
-	# decode adden if present, adden can be omitted ...
-	try:
-		adden_index = reference.index("+");
-		decodedint = decode_operand(reference[adden_index+1:]);
-		if (decodedint["type"] == "sym"):
-			decoded["imm"] = 0;
-			decoded["sym"] = decodedint["value"];
-			regname = reference[:adden_index];
-		else:
-			try:
-				decodedint = int_forcecast(decodedint);
-			except Exception as e:
-				print_error("error", "decode_mem_operand(): Could not force cast immediate int in memory ref %s" % operand);
-				return {"type": "error", "value": ERR_DECODE_FAILED};
-
-			decoded["imm"] = decodedint;
-			regname = reference[:adden_index];
-	except Exception as e:
-		regname = reference;
-
-	# ... ra cannot, error if not present
-	if ((regname not in cpu.registers) or (cpu.registers[regname]["type"] != "reg")):
-		print_error("error", "decode_mem_operand(): Bad offset-register '%s' during decoding of operand %s" % (regname, operand));
-		return {"type": "error", "value": ERR_DECODE_FAILED};
-
-	decoded["value"] = cpu.registers[regname]["value"];
-	decoded["regname"] = regname;
-	return decoded;
-	"""
 
 # decode int operand from string
 def decode_int_operand(operand):
@@ -997,6 +964,9 @@ def format_exception(e):
 
 # serialise instruction at file offset
 def serialise_instruction(instruction, offset):
+	if ("serialise_instruction" in dir(cpu)):
+		return cpu.serialise_instruction(instruction, offset);
+
 	name = instruction["name"];
 	operands = instruction["operands"];
 	if (name not in cpu.encodings):
@@ -1004,7 +974,7 @@ def serialise_instruction(instruction, offset):
 		return {"type": "error", "value": ERR_RESOLUTION_FAILED};
 
 	encoding = cpu.encodings[name];
-	if (encoding["args"] != len(operands)):
+	if (encoding["args"] != -1 and encoding["args"] != len(operands)):
 		print_error("error", "serialise_instruction(): Got %s operands, expected [ %s ]" % (encoding["args"], ", ".join(operands)));
 		return {"type": "error", "value": ERR_INCORRECT_ARG_COUNT};
 
@@ -1114,12 +1084,15 @@ def preprocess(instruction, offset):
 				return {"type": "error", "value": ERR_UNIMPLEMENTED};
 
 			controldirective = preprocessor_stack.pop();
-			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": not controldirective["value"], "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
 			preprocessor_accepted = ["endif"];
-			preprocessor_hungry = True;
 			preprocessor_state = PREPROCESSOR_IFDEF;
 			if (controldirective["value"] == True):
-				return controldirective["body"].strip();
+				preprocessor_stack.append(controldirective); # put it back
+				preprocessor_hungry = False;
+				return "";
+
+			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": True, "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
+			preprocessor_hungry = True;
 			return "";
 
 		if ((split_directive[0] == "elifdef" and "elifdef" in preprocessor_accepted) or (split_directive[0] == "elifndef" and "elifndef" in preprocessor_accepted)):
@@ -1138,15 +1111,16 @@ def preprocess(instruction, offset):
 			if (split_directive[0] == "elifndef"):
 				truth = not truth;
 
-			if (controldirective["value"] == True):
-				truth = False;
-
-			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": False, "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
-			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
-			preprocessor_hungry = True;
 			preprocessor_state = PREPROCESSOR_IFDEF;
 			if (controldirective["value"] == True):
-				return controldirective["body"].strip();
+				preprocessor_accepted = ["endif"];
+				preprocessor_stack.append(controldirective); # put it back
+				preprocessor_hungry = False;
+				return "";
+
+			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": truth, "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
+			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
+			preprocessor_hungry = True;
 			return "";
 
 		if ((split_directive[0] == "ifdef" and "ifdef" in preprocessor_accepted)) or split_directive[0] == "ifndef" and "ifndef" in preprocessor_accepted:
@@ -1232,7 +1206,7 @@ def assemble_instruction(instruction, offset, macro_overrides={}):
 
 			if (obj["type"] == "null"):
 				continue;
-
+			
 			assembled = serialise_instruction(obj, offset + len(final_assembly));
 			if (type(assembled) != bytes):
 				return assembled;
@@ -1292,8 +1266,9 @@ def assemble_lines(lines, startoffset=0, macro=None, macro_overrides={}):
 
 		try:
 			instruction = assemble_instruction(line, offset, macro_overrides);
-		except:
+		except Exception as e:
 			instruction = {"type": "error", "value": ERR_GENERIC};
+
 		if (type(instruction) != bytes and type(instruction) != bytearray):
 			if (instruction["type"] == "error"):
 				print_error("error", "assemble_lines(): %s on line %d%s" % (err2name(instruction["value"]), linenum, macroerrstr));

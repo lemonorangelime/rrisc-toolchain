@@ -23,11 +23,15 @@ mov r5, 0x1212
 #elifdef a
 mov r5, 0x3434
 #else
+mov r5, 0xaaaa
+#endif
 
 #ifdef b
 mov r6, 0x9999
 #elifndef c
 mov r6, 0x8888
+#else
+mov r6, 0xa0a0
 #endif
 
 #ifndef c

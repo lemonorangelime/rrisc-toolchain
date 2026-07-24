@@ -16,4 +16,7 @@ rrinterp/
 uart-fifo
 
 # deprecated, see rrisc BIOS
+stdlib
 stdlib/
+stdlib/*
+TODO

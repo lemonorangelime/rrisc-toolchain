@@ -24,8 +24,8 @@ link bios_small.elf bios_small
 link bios_mulless.elf bios_mulless
 link bios_safe.elf bios_safe
 
-../rrasm/rrasm biosupdater.asm -f elf -o build/biosupdate.elf
-../rrasm/rrasm biosupdater.asm -f roadrun -o build/biosupdate.roadrun
-../rrasm/rrasm biosupdater.asm -f vmd -o build/biosupdate.vmd
-../rrasm/rrasm biosupdater.asm -f bin -o build/biosupdate.bin
-../rrasm/rrasm biosupdater.asm -f mi -o build/biosupdate.mi
+rrasm biosupdater.asm -f elf -o build/biosupdate.elf
+rrasm biosupdater.asm -f roadrun -o build/biosupdate.roadrun
+rrasm biosupdater.asm -f vmd -o build/biosupdate.vmd
+rrasm biosupdater.asm -f bin -o build/biosupdate.bin
+rrasm biosupdater.asm -f mi -o build/biosupdate.mi

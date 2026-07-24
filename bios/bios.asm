@@ -37,10 +37,9 @@ UART_STAT_TX_READY equ 0b00000010
 
 VGA_PALETTE_BASE equ 0x1a70
 
-RRISC_VERSION_ADDR_HIGH equ 0x0000
-RRISC_VERSION_ADDR_LOW equ 0xffff
-RRISC_IDENTIFIER_ADDR_HIGH equ 0x0000
-RRISC_IDENTIFIER_ADDR_LOW equ 0xfffe
+; use hlvi operations for these... or in the future a pool?? exciting!!!
+RRISC_VERSION_ADDR equ 0x0000ffff
+RRISC_IDENTIFIER_ADDR equ 0x0000fffe
 
 STACK_TOP equ 0x1600
 
@@ -64,7 +63,7 @@ bios_func_table:
 ; in the future we should/need/will/must fix this
 bios_str_boot_message: db "RoadRisc-32߿ PC BIOS   V 1.0   2026/6/17", 0x00
 align 4
-bios_str_copyright_message: db "Copyright (C) 2026  Stupid Gay Idiot.", 0x00
+bios_str_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
 align 4
 bios_str_memfree_mesage: db "??    KB Free", 0x00
 align 4
@@ -84,6 +83,8 @@ bios_str_got: db "Got        ", 0x00
 align 4
 bios_str_comptime_message: db "Build date ", __TIMESTAMP__, 0x00
 align 4
+bios_str_assembler_message: db "Assembled With ", __AS_NAME__, " ", __AS_VER__, 0x00
+align 4
 bios_str_fonttest: db "!", 0x22, "#$%&'()*+", 0x2c, "-./0123456789:", 0x3b, "<=>?", 0x00
 align 4
 bios_str_fonttest2: db "@ABCDEFGHIJKLMNOPQRSTUVWXY[\\]^_", 0x00
@@ -94,9 +95,21 @@ bios_str_fonttest_gr: db "ABΓΔEZΘHIKΛMNΞOΠPΣTYΦXΨΩ", 0x00
 align 4
 bios_str_fonttest2_gr: db "αβγδεζθηικλμvξoπρστυφχψω", 0x00
 align 4
-#endif
 
-colour: dd BACKGROUND_COLOUR
+bios_message_table:
+	; scanline, ptr16 - these string tables save loads of memory & programmer time, we should generalise this structure and make a bios call for printing them
+	dw 0, bios_str_boot_message
+	dw 8, bios_str_copyright_message
+	dw 80, bios_str_uart_message
+	dw 152, bios_str_fonttest
+	dw 160, bios_str_fonttest2
+	dw 168, bios_str_fonttest3
+	dw 184, bios_str_fonttest_gr
+	dw 192, bios_str_fonttest2_gr
+	dw 216, bios_str_assembler_message
+	dw 224, bios_str_comptime_message
+bios_message_table_end:
+#endif
 
 extern bios_entry
 bios_entry:
@@ -106,8 +119,7 @@ bios_entry:
 
 #ifndef NO_VGA_PALETTE
 	mov r0, VGA_PALETTE_BASE
-	mov r1, colour
-	mov r1, [r1]
+	mov r1, BACKGROUND_COLOUR
 	mov [r0], r1
 #endif
 
@@ -121,16 +133,6 @@ bios_entry:
 
 	xor r0, r0
 	call fill_screen
-
-	xor r0, r0
-	xor r1, r1
-	mov r2, bios_str_boot_message
-	call print_str
-
-	xor r0, r0
-	mov r1, 8
-	mov r2, bios_str_copyright_message
-	call print_str
 
 	xor r0, r0
 	mov r1, 40
@@ -155,9 +157,7 @@ bios_entry:
 	mov r1, 232
 	mov r2, bios_str_cpuver_mesage
 	call print_str
-	mov r8, RRISC_VERSION_ADDR_HIGH
-	shl r8, 16
-	or r8, RRISC_VERSION_ADDR_LOW
+	mov r8, RRISC_VERSION_ADDR
 	mov r8, [r8]
 	shr r2, r8, 16
 	and r2, 0x7fff
@@ -176,37 +176,16 @@ bios_entry:
 	call print_str
 bios_entry.realcpu:
 
+	mov r6, bios_message_table
+	mov r5, bios_message_table_end
+bios_entry.print_message:
 	xor r0, r0
-	mov r1, 224
-	mov r2, bios_str_comptime_message
+	mov r2, [r6]
+	shr r1, r2, 16
+	and r2, 0xffff
 	call print_str
-
-	xor r0, r0
-	mov r1, 80
-	mov r2, bios_str_uart_message
-	call print_str
-
-	xor r0, r0
-	mov r1, 152
-	mov r2, bios_str_fonttest
-	call print_str
-	xor r0, r0
-	add r1, 8
-	mov r2, bios_str_fonttest2
-	call print_str
-	xor r0, r0
-	add r1, 8
-	mov r2, bios_str_fonttest3
-	call print_str
-
-	xor r0, r0
-	mov r1, 184
-	mov r2, bios_str_fonttest_gr
-	call print_str
-	xor r0, r0
-	add r1, 8
-	mov r2, bios_str_fonttest2_gr
-	call print_str
+	add r6, 1
+	blt r5, r6, bios_entry.print_message
 #endif
 
 	mov r0, UART_STAT_ADDR
@@ -265,14 +244,10 @@ bios_entry.load_program.detect.roadrun:
 	xor r3, r3
 	mov r8, EXECUTABLE_ROADRUN
 	mov r7, [r3]
-	mov r9, 0x7f52
-	shl r9, 16
-	or r9, 0x4f41
+	mov r9, 0x7f524f41 ; 32-bit load, hlvi op
 	bneq r7, r9, bios_entry.load_program.detect.bin
 	mov r7, [r3 + 1]
-	mov r9, 0x4452
-	shl r9, 16
-	or r9, 0x554e
+	mov r9, 0x4452554e
 	bneq r7, r9, bios_entry.load_program.detect.bin
 	jmp bios_entry.load_program.enter
 
@@ -382,12 +357,8 @@ update_uart_status.cleanloop:
 probe_memory: ; probe_memory()
 	mov r0, 0x4000
 probe_memory.loop:
-	mov r13, 0x5555
-	shl r13, 16
-	or r13, 0x5555
-	mov r14, 0xaaaa
-	shl r14, 16
-	or r14, 0xaaaa
+	mov r13, 0x55555555
+	mov r14, 0xaaaaaaaa
 	mov [r0], r13
 	mov [r0 + 1], r14
 	mov r15, [r0]
@@ -403,9 +374,7 @@ probe_memory.exit:
 
 fill_screen: ; fill_screen(colour) fill screen
 #ifndef MULLESS
-	mov r15, 0x1111
-	shl r15, 16
-	or r15, 0x1111
+	mov r15, 0x11111111
 	and r13, r0, 0xf
 	mul r15, r13
 #else
@@ -570,14 +539,11 @@ print_str32.loop:
 
 
 find_pixel: ; find_pixel(x, y) - return pixel address in r0
-#ifndef MULLESS
 	mov r15, VGA_WIDTH
+#ifndef MULLESS
 	mul r15, r1, r15
 #else
-	shl r15, r1, 8
-	shl r1, 6
-	add r1, r15
-	mov r15, r1
+	shl r15, r1, 8 ; THIS ONLY WORKS AT 240p
 #endif
 	add r0, r15
 	shr r0, 3
@@ -647,23 +613,17 @@ draw_word.bitmap_glyph.broadcast_pixel:
 	and r15, 0xff
 	shl r13, r15, 12 ; pass 1
 	or r15, r13
-	mov r12, 0x000f
-	shl r12, 16
-	or r12, 0x000f
+	mov r12, 0x000f000f
 	and r15, r12
 
 	shl r13, r15, 6 ; pass 2
 	or r15, r13
-	mov r12, 0x0303
-	shl r12, 16
-	or r12, 0x0303
+	mov r12, 0x03030303
 	and r15, r12
 
 	shl r13, r15, 3 ; pass 3
 	or r15, r13
-	mov r12, 0x1111
-	shl r12, 16
-	or r12, 0x1111
+	mov r12, 0x11111111
 	and r15, r12
 
 #ifndef MULLESS
@@ -765,6 +725,7 @@ locate_glyph.flat:
 	mul r0, r1
 #else
 	shl r1, r0, 1
+	add r1, r0
 	add r0, r1
 #endif
 	add r0, font_table
