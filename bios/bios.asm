@@ -408,8 +408,7 @@ fill_screen: ; fill_screen(colour) fill screen
 	or r15, 0x1111
 	and r13, r0, 0xf
 	mul r15, r13
-#endif ; #else directive is borken in rrasm, PLS FIX
-#ifdef MULLLESS
+#else
 	and r13, r0, 0xf
 	shl r15, r13, 4
 	or r15, r13
@@ -454,8 +453,7 @@ print_number.print_digit:
 #ifndef MULLESS
 	mov r15, 10
 	mul r14, r13, r15
-#endif
-#ifdef MULLESS
+#else
 	shl r14, r13, 3
 	shl r15, r13, 1
 	add r14, r15
@@ -575,8 +573,7 @@ find_pixel: ; find_pixel(x, y) - return pixel address in r0
 #ifndef MULLESS
 	mov r15, VGA_WIDTH
 	mul r15, r1, r15
-#endif
-#ifdef MULLESS
+#else
 	shl r15, r1, 8
 	shl r1, 6
 	add r1, r15
@@ -672,8 +669,7 @@ draw_word.bitmap_glyph.broadcast_pixel:
 #ifndef MULLESS
 	mov r12, 0xf
 	mul r15, r12
-#endif
-#ifdef MULLESS
+#else
 	shl r12, r15, 3
 	or r15, r12
 	shl r12, r15, 2
@@ -767,8 +763,7 @@ locate_glyph.flat:
 #ifndef MULLESS
 	mov r1, 3
 	mul r0, r1
-#endif
-#ifdef MULLESS
+#else
 	shl r1, r0, 1
 	add r0, r1
 #endif

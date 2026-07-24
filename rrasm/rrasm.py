@@ -10,7 +10,7 @@ import traceback;
 
 ## versioning
 rrasm_name = "rrasm";
-rrasm_version = "0.1"; # annoying CHANGEME
+rrasm_version = "0.2"; # annoying CHANGEME
 
 ## constants
 
@@ -21,7 +21,7 @@ ADDRESS_SHIFT = len(bin(WORD_SIZE - 1)[2:]) if WORD_ADDRESSED else 0; # change W
 ### transformer constants
 FPGASYNTH_WORD_SIZE = WORD_SIZE;
 MI_WORD_SIZE = WORD_SIZE;
-# cpu.ELF_MACHINE_TYPE = 0x23; - lemon: since we now support multiple arches/cpus (machines), this is now compiler flag dependant
+# ELF_MACHINE_TYPE = 0x23; - lemon: since we now support multiple arches/cpus (machines), this is now compiler flag dependant
 ELF_OBJ_TYPE = 0x00001; # our very recognised and stardard object type (unlinked relocatable - like nasm)
 ELF_OSABI_TYPE = 0x80; # out (unrecognised, non-standard) OS/ABI type
 ELF_OSABI_VERSION = 0x00; # this is osabi specific anyway
@@ -1088,6 +1088,10 @@ def preprocess(instruction, offset):
 	global preprocessor_accepted;
 	global preprocessor_hungry;
 
+	if (instruction.strip().lower() == "#debugger"):
+		print(preprocessor_state, preprocessor_hungry, preprocessor_stack, preprocessor_accepted);
+		exit();
+
 	instruction = instruction.strip();
 	if (instruction[0] == '#'):
 		split_directive = split_instruction(instruction[1:]);
@@ -1097,9 +1101,9 @@ def preprocess(instruction, offset):
 				return {"type": "error", "value": ERR_UNIMPLEMENTED};
 
 			controldirective = preprocessor_stack.pop();
-			preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+			preprocessor_state = controldirective["state"];
 			preprocessor_accepted = controldirective["accepted"];
-			preprocessor_hungry = False;
+			preprocessor_hungry = controldirective["hunger"];
 			if (controldirective["value"] == True):
 				return controldirective["body"].strip();
 			return "";
@@ -1110,17 +1114,12 @@ def preprocess(instruction, offset):
 				return {"type": "error", "value": ERR_UNIMPLEMENTED};
 
 			controldirective = preprocessor_stack.pop();
+			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": not controldirective["value"], "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
+			preprocessor_accepted = ["endif"];
+			preprocessor_hungry = True;
+			preprocessor_state = PREPROCESSOR_IFDEF;
 			if (controldirective["value"] == True):
-				preprocessor_state = PREPROCESSOR_PASSTHROUGH;
-				preprocessor_hungry = False;
-				preprocessor_accepted = controldirective["accepted"];
 				return controldirective["body"].strip();
-			else:
-				preprocessor_stack.append({"type": "if", "value": True, "body": "", "accepted": controldirective["accepted"]});
-				preprocessor_accepted = ["endif"];
-				preprocessor_hungry = True;
-				preprocessor_state = PREPROCESSOR_IFDEF;
-				return "";
 			return "";
 
 		if ((split_directive[0] == "elifdef" and "elifdef" in preprocessor_accepted) or (split_directive[0] == "elifndef" and "elifndef" in preprocessor_accepted)):
@@ -1134,22 +1133,20 @@ def preprocess(instruction, offset):
 				return {"type": "error", "value": ERR_UNIMPLEMENTED};
 
 			controldirective = preprocessor_stack.pop();
-			if (controldirective["value"] == True):
-				preprocessor_state = PREPROCESSOR_PASSTHROUGH;
-				preprocessor_hungry = False;
-				preprocessor_accepted = controldirective["accepted"];
-				return controldirective["body"].strip();
-			else:
-				symbol = query[0];
-				truth = (symbol in macros) or (symbol in symbols);
-				if (split_directive[0] == "elifndef"):
-					truth = not truth;
+			symbol = query[0];
+			truth = (symbol in macros) or (symbol in symbols);
+			if (split_directive[0] == "elifndef"):
+				truth = not truth;
 
-				preprocessor_stack.append({"type": "if", "value": truth, "body": "", "accepted": controldirective["accepted"]});
-				preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
-				preprocessor_hungry = True;
-				preprocessor_state = PREPROCESSOR_IFDEF;
-				return "";
+			if (controldirective["value"] == True):
+				truth = False;
+
+			preprocessor_stack.append({"type": "if", "state": controldirective["state"], "value": False, "body": "", "hunger": controldirective["hunger"], "accepted": controldirective["accepted"]});
+			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
+			preprocessor_hungry = True;
+			preprocessor_state = PREPROCESSOR_IFDEF;
+			if (controldirective["value"] == True):
+				return controldirective["body"].strip();
 			return "";
 
 		if ((split_directive[0] == "ifdef" and "ifdef" in preprocessor_accepted)) or split_directive[0] == "ifndef" and "ifndef" in preprocessor_accepted:
@@ -1163,7 +1160,7 @@ def preprocess(instruction, offset):
 			if (split_directive[0] == "ifndef"):
 				truth = not truth;
 
-			preprocessor_stack.append({"type": "if", "value": truth, "body": "", "accepted": preprocessor_accepted});
+			preprocessor_stack.append({"type": "if", "state": preprocessor_state, "value": truth, "body": "", "hunger": preprocessor_hungry, "accepted": preprocessor_accepted});
 			preprocessor_accepted = ["endif", "else", "elifdef", "elifndef"];
 			preprocessor_hungry = True;
 			preprocessor_state = PREPROCESSOR_IFDEF;
@@ -1176,7 +1173,7 @@ def preprocess(instruction, offset):
 
 			if (macrodef["type"] == "function"):
 				if (macrodef["body"][-1] == '\\'):
-					preprocessor_stack.append({"type": "define", "value": macrodef["name"], "body": macrodef["body"][:-1], "operands": macrodef["operands"], "accepted": preprocessor_accepted});
+					preprocessor_stack.append({"type": "define", "state": preprocessor_state, "value": macrodef["name"], "body": macrodef["body"][:-1], "hunger": preprocessor_hungry, "operands": macrodef["operands"], "accepted": preprocessor_accepted});
 					preprocessor_state = PREPROCESSOR_DEFINE;
 					preprocessor_hungry = True;
 					preprocessor_accepted = [];
@@ -1200,9 +1197,9 @@ def preprocess(instruction, offset):
 		if ((preprocessor_state == PREPROCESSOR_DEFINE) and (instruction[-1] != '\\')):
 			defdirective = preprocessor_stack.pop();
 			create_macro_function(defdirective["value"], defdirective["operands"], defdirective["body"]);
-			preprocessor_state = PREPROCESSOR_PASSTHROUGH;
+			preprocessor_state = defdirective["state"];
 			preprocessor_accepted = defdirective["accepted"];
-			preprocessor_hungry = False;
+			preprocessor_hungry = defdirective["hunger"];
 
 		return "";
 
@@ -1293,7 +1290,10 @@ def assemble_lines(lines, startoffset=0, macro=None, macro_overrides={}):
 			linenum += 1;
 			continue;
 
-		instruction = assemble_instruction(line, offset, macro_overrides);
+		try:
+			instruction = assemble_instruction(line, offset, macro_overrides);
+		except:
+			instruction = {"type": "error", "value": ERR_GENERIC};
 		if (type(instruction) != bytes and type(instruction) != bytearray):
 			if (instruction["type"] == "error"):
 				print_error("error", "assemble_lines(): %s on line %d%s" % (err2name(instruction["value"]), linenum, macroerrstr));

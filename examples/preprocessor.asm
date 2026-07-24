@@ -34,5 +34,12 @@ mov r6, 0x8888
 mov r7, 0x7777
 #endif
 
+#define d 1
+#ifdef c
+add r0, 0xb00b
+#else
+add r0, 0x0bb0
+#endif
+
 mov r0, a
 my_macro_func r0, r1

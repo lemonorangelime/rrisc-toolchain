@@ -263,7 +263,7 @@ class RRISC32():
 		i = 0;
 		for operand in operands:
 			operand = self.map_mem_to_rrisc_offset(operand);
-			if (operand["type"] == "err"):
+			if (operand["type"] == "error"):
 				return operand;
 
 			optype = optypes[i];
