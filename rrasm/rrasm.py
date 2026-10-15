@@ -30,6 +30,12 @@ ELF_RRISC_REL_8 = 0x00; # rrisc arch relocation types
 ELF_RRISC_REL_16 = 0x01;
 ELF_RRISC_REL_32 = 0x02;
 ELF_RRISC_REL_64 = 0x03;
+
+ELF_RRISC_REL_8_HIGH = 0x40;
+ELF_RRISC_REL_16_HIGH = 0x41;
+ELF_RRISC_REL_32_HIGH = 0x42;
+ELF_RRISC_REL_64_HIGH = 0x43;
+
 ELF_RRISC_REL_PC16 = 0x80;
 
 ## default variable values
@@ -226,7 +232,12 @@ def serialise(bytesize, operand, offset):
 
 	if (operand["type"] == "int" or operand["type"] == "sym"):
 		if (operand["type"] == "sym"):
-			reltype = { 1: "abs8", 2: "abs16", 4: "abs32", 8: "abs64" };
+			reltype = {
+				1: "abs8",
+				2: "abs16",
+				4: "abs32",
+				8: "abs64",
+			};
 			if (value not in symbols or (symtype[value] != "const" and pie)):
 				unresolved.append({"type": reltype[bytesize], "symname": value, "address": offset});
 				return b"\x00" * bytesize;
@@ -425,7 +436,7 @@ def elf_format_transformer(bin):
 			unresolved_exported.append(symname);
 
 		dynsym += struct.pack(">I", name_index);
-		if (sym["type"] in ["abs8", "abs16", "abs32", "abs64"]):
+		if ("abs" in sym["type"]):
 			dynsym += b"\x00\x00\x00\x00";
 		else:
 			dynsym += struct.pack(">i", sym["relbase"] << ADDRESS_SHIFT);
@@ -434,9 +445,17 @@ def elf_format_transformer(bin):
 	
 		absreltypes = {
 			"abs8": ELF_RRISC_REL_8,
+			"abs8_l": ELF_RRISC_REL_8,
+			"abs8_h": ELF_RRISC_REL_8_HIGH,
 			"abs16": ELF_RRISC_REL_16,
+			"abs16_l": ELF_RRISC_REL_16,
+			"abs16_h": ELF_RRISC_REL_16_HIGH,
 			"abs32": ELF_RRISC_REL_32,
+			"abs32_l": ELF_RRISC_REL_32,
+			"abs32_h": ELF_RRISC_REL_32_HIGH,
 			"abs64": ELF_RRISC_REL_64,
+			"abs64_l": ELF_RRISC_REL_64,
+			"abs64_h": ELF_RRISC_REL_64_HIGH,
 
 			"rel16": ELF_RRISC_REL_PC16,
 		};
@@ -617,7 +636,8 @@ compressors_help = "set output compressor [ %s ]" % (", ".join(compressors.keys(
 def int_bound_check(int, bits, signed):
 	if ((int < 0) and signed):
 		int = abs(int) - 1;
-	maxnum = (2 ** bits) - 1;
+
+	maxnum = (1 << bits) - 1;
 	if ((int < 0) or (int > maxnum)):
 		return True;
 	return False;
@@ -807,6 +827,10 @@ def decode_operand(operand):
 		decimaldecode = decode_decimal_operand(operand); # try as decimal
 
 		if (decimaldecode["type"] == "error"):
+			operand = operand.strip();
+			if (operand in macros):
+				return macros[operand];
+
 			return {"type": "sym", "value": operand}; # assume ths is some kind of symbol
 
 		return decimaldecode;
@@ -982,7 +1006,7 @@ def serialise_instruction(instruction, offset):
 
 def handle_decoded_instruction(decoded, offset, macro_overrides={}):
 	if (decoded["type"] == "reprocess"):
-		return assemble_instruction(decoded["value"], offset), macro_overrides;
+		return assemble_instruction(decoded["value"], offset, macro_overrides);
 
 	if (decoded["type"] == "error"):
 		return decoded;
@@ -1317,7 +1341,22 @@ def process_file(source):
 		addr = deferred["address"];
 		symname = deferred["symname"];
 		symtype = deferred["type"];
-		symsize = {"abs8": 1, "abs16": 2, "abs32": 4, "abs64": 8, "rel16": 2};
+		symsize = {
+			"abs8": 1,
+			"abs8_l": 1,
+			"abs8_h": 1,
+			"abs16": 2,
+			"abs16_l": 2,
+			"abs16_h": 2,
+			"abs32": 4,
+			"abs32_l": 4,
+			"abs32_h": 4,
+			"abs64": 8,
+			"abs64_l": 8,
+			"abs64_h": 8,
+
+			"rel16": 2
+		};
 		if ((addr + symsize[symtype] - 1) >= len(assembly)):
 			print_error("error", "process_file(): Unresolved symbol extended past assembly");
 			return;
@@ -1332,38 +1371,82 @@ def process_file(source):
 			else:
 				print_error("error", "process_file(): Could not export symbol '%s' into %s (Did you forget to output an ELF?)" % (symname, output_format));
 			return;
-	
+
+		symbound = {
+			"abs8": 8,
+			"abs8_l": 16,
+			"abs8_h": 16,
+			"abs16": 16,
+			"abs16_l": 32,
+			"abs16_h": 32,
+			"abs32": 32,
+			"abs32_l": 64,
+			"abs32_h": 64,
+			"abs64": 64,
+			"abs64_l": 128,
+			"abs64_h": 128,
+
+			"rel16": 15
+		};
+
 		symval = symbols[symname];
-		if (symtype == "abs8"):
-			if (int_bound_check(symval, 8, 0)):
-				print_error("error", "process_file(): Could not encode abs8 symtype, value above 8-bit limit (%s=%s)" % (symname, symval));
+		if ("rel" in symtype):
+			if (int_bound_check(1, symbound[symtype], 1)):
+				print_error("error", "process_file(): Could not encode %s symtype, value above %s-bit limit (%s=%s)" % (symtype, symsize[symtype] << 3, symname, symval));
+				return;
+		else:
+			if (int_bound_check(1, symbound[symtype], 0)):
+				print_error("error", "process_file(): Could not encode %s symtype, value above %s-bit limit (%s=%s)" % (symtype, symsize[symtype] << 3, symname, symval));
 				return;
 
+		symfmt = {
+			"abs8": "B",
+			"abs8_l": "B",
+			"abs8_h": "B",
+			"abs16": ">H",
+			"abs16_l": ">H",
+			"abs16_h": ">H",
+			"abs32": ">I",
+			"abs32_l": ">I",
+			"abs32_h": ">I",
+			"abs64": ">Q",
+			"abs64_l": ">Q",
+			"abs64_h": ">Q",
+
+			"rel16": ">h"
+		};
+		symshift = {
+			"abs8_h": 8,
+			"abs16_h": 16,
+			"abs32_h": 32,
+			"abs64_h": 64,
+		};
+		shift = symshift[symtype] if (symtype in symshift) else 0;
+		mask = (1 << (symsize[symtype] << 3)) - 1;
+		if ("rel" in symtype):
+			assembly[addr:addr+symsize[symtype]] = struct.pack(symfmt[symtype], symval - deferred["relbase"]);
+		else:
+			assembly[addr:addr+symsize[symtype]] = struct.pack(symfmt[symtype], (symval >> shift) & mask);
+
+		# --- comment ---
+		""" if (symtype == "abs8"):
 			assembly[addr:addr+1] = struct.pack("B", symbols[symname]);
+		elif (symtype == "abs8_h"):
+			assembly[addr:addr+1] = struct.pack("B", symbols[symname] >> 8);
 		elif (symtype == "abs16"):
-			if (int_bound_check(symval, 16, 0)):
-				print_error("error", "process_file(): Could not encode abs16 symtype, value above 16-bit limit (%s=%s)" % (symname, symval));
-				return;
-
 			assembly[addr:addr+2] = struct.pack(">H", symbols[symname]);
+		elif (symtype == "abs16_h"):
+			assembly[addr:addr+2] = struct.pack(">H", symbols[symname] >> 16);
 		elif (symtype == "abs32"):
-			if (int_bound_check(symval, 32, 0)):
-				print_error("error", "process_file(): Could not encode abs32 symtype, value above 32-bit limit (%s=%s)" % (symname, symval));
-				return;
-
 			assembly[addr:addr+4] = struct.pack(">I", symbols[symname]);
+		elif (symtype == "abs32_h"):
+			assembly[addr:addr+4] = struct.pack(">I", symbols[symname] >> 32);
 		elif (symtype == "abs64"):
-			if (int_bound_check(symval, 64, 0)):
-				print_error("error", "process_file(): Could not encode abs64 symtype, value above 64-bit limit (%s=%s)" % (symname, symval));
-				return;
-
 			assembly[addr:addr+8] = struct.pack(">Q", symbols[symname]);
+		elif (symtype == "abs64_h"):
+			assembly[addr:addr+8] = struct.pack(">Q", symbols[symname] >> 64);
 		elif (symtype == "rel16"):
-			if (int_bound_check(symval, 15, 1)):
-				print_error("error", "process_file(): Could not encode rel16 symtype, value above signed 16-bit limit (%s=%s)" % (symname, symval));
-				return;
-
-			assembly[addr:addr+2] = struct.pack(">h", symbols[symname] - deferred["relbase"]);
+			assembly[addr:addr+2] = struct.pack(">h", symbols[symname] - deferred["relbase"]); """
 
 	unresolved = new_unresolved;
 
@@ -1479,6 +1562,17 @@ def init_parser(parser):
 	parser.add_argument("-v", "--no-hlvi", help="disable High-Level Virtual Instructions (affects code generation)", action="store_true");
 	parser.add_argument("-r", "--pie", help="generate position independent executable (affects linking)", action="store_true");
 
+def assign_macro_from_argument(arg):
+	macroname = arg;
+	macroval = "1";
+
+	if ("=" in arg):
+		delim = arg.index("=");
+		macroname = arg[:delim];
+		macroval = arg[delim+1:];
+
+	macros[macroname] = macroval;
+
 def main(args):
 	global pic;
 	global export_all;
@@ -1519,7 +1613,7 @@ def main(args):
 		compressor = args.compress;
 	if (args.define != None):
 		for macro in args.define.split(","):
-			macros[macro] = "1";
+			assign_macro_from_argument(macro);
 
 	load_architecture();
 	process_file(args.source);

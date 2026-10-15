@@ -136,12 +136,24 @@ system_t * system_create() {
 
 	// create and attach devices...
 	// for testing: hardcode vga controller and uart
-	device_interface_t * vga_interface = lookup_dev_interface("rrisc-vga");
+	//device_interface_t * vga_interface = lookup_dev_interface("rrisc-vga");
+	device_interface_t * vga_interface = lookup_dev_interface("rrisc-m3p");
 	device_interface_t * uart_interface = lookup_dev_interface("uart");
 	device_t * vga = vga_interface->create();
 	device_t * uart = uart_interface->create();
 	system->devices[0] = vga;
 	system->devices[1] = uart;
+
+	if (!vga) {
+		printf("Could not create VGA device.\n");
+		return NULL;
+        }
+
+	if (!uart) {
+		printf("Could not create UART device.\n");
+		return NULL;
+        }
+
 	if (system_attach_buses(system) != 0) {
 		printf("Could not attach buses.\n");
 		system_free(system);

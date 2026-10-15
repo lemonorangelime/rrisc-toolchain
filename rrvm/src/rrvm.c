@@ -16,7 +16,9 @@ uint64_t get_time_ns() {
 }
 
 int main(int argc, char * argv[]) {
-	parse_args(argc, argv);
+	if (parse_args(argc, argv) == -1) {
+		return 0;
+	}
 
 	sysdef_t * sysdef = lookup_system_def(option_machine_name);
 	if (!sysdef) {

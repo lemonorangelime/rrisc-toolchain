@@ -102,7 +102,7 @@ class RRISC32():
 	
 		# virtual instruction list
 		self.virtual = {
-			"mov": {"args": [2], "resolve": self.mov_virtual_instruction},
+			"mov": {"args": [2], "wantsoffset": True, "resolve": self.mov_virtual_instruction},
 			"add": {"args": [2, 3], "resolve": lambda a, b, c=False: self.rrasm.rr_imm_virtual_resolver(a, b, c, "add", "addi")},
 			"sub": {"args": [2, 3], "resolve": lambda a, b, c=False: self.rrasm.rr_imm_virtual_resolver(a, b, c, "sub", "subi")},
 			"and": {"args": [2, 3], "resolve": lambda a, b, c=False: self.rrasm.rr_imm_virtual_resolver(a, b, c, "and", "andi")},
@@ -134,7 +134,7 @@ class RRISC32():
 
 
 	# `mov` instruction virtual overload resolver, resolve to various load instructions depending on operand types
-	def mov_virtual_instruction(self, a, b):
+	def mov_virtual_instruction(self, offset, a, b):
 		b = self.rrasm.int_coerce(b);
 		if (a["type"] == "reg" and b["type"] == "reg"):
 			return {"type": "instruction", "name": "ori", "operands": [a, b, self.rrasm.decode_operand("0")]};
@@ -151,6 +151,14 @@ class RRISC32():
 					{"type": "instruction", "name": "ldi", "operands": [a, self.rrasm.int_shiftmask(b, 16, 0xffff)]},
 					{"type": "instruction", "name": "shli", "operands": [a, a, self.rrasm.decode_operand("16")]},
 					{"type": "instruction", "name": "ori", "operands": [a, a, self.rrasm.int_shiftmask(b, 0, 0xffff)]}
+				];
+			if (b["type"] == "sym" and self.rrasm.hlvi):
+				self.rrasm.unresolved.append({"type": "abs16_h", "symname": b["value"], "address": offset + 2});
+				self.rrasm.unresolved.append({"type": "abs16_l", "symname": b["value"], "address": offset + 10});
+				return [
+					{"type": "instruction", "name": "ldi", "operands": [a, self.rrasm.decode_operand("0")]},
+					{"type": "instruction", "name": "shli", "operands": [a, a, self.rrasm.decode_operand("16")]},
+					{"type": "instruction", "name": "ori", "operands": [a, a, self.rrasm.decode_operand("0")]}
 				];
 			return {"type": "instruction", "name": "ldi"};
 
@@ -410,7 +418,7 @@ class RRISC32():
 
 				enctype = encoding[1]["encoding"];
 				break;
-		
+
 		for letter in enctype:
 			dis_ops = dis_ops + self.disassemble_letter(binary, letter, literal) + ", ";
 
@@ -423,10 +431,12 @@ class RRISC32():
 class RRISC32_FUTURE(RRISC32):
 	def __init__(self, rrasm):
 		super().__init__(rrasm);
+
 		# tbd: jal becomes relative (like this) OR new seperate `jalr` instruction
 		self.encodings["jal"] = {"opcode": 0x15, "args": 2, "encoding": "dr"},
 		self.encodings["iret"] = {"opcode": 0x22, "args": 0, "encoding": ""};
 		self.encodings["jreg"] = {"opcode": 0x25, "args": 1, "encoding": "d"};
+
 		# "ldio": {"opcode": 0x23, "args": 2, "encoding": "da"},
 		# "stio": {"opcode": 0x24, "args": 2, "encoding": "da"},
 

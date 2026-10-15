@@ -110,6 +110,8 @@ device_t * uart_create_device() {
 	memset(&uart->mmio_buffer, 0, sizeof(uart->mmio_buffer));
 	uart->offset = 0;
 
+	remove(UART_FIFO_PATH);
+
 	int r = mkfifo(UART_FIFO_PATH, 0664);
 	if (r != 0) {
 		return NULL;

@@ -47,8 +47,9 @@ int vga_read_handler(void * priv, bus_t * bus, uint32_t address, void * b, size_
 	uint8_t * buffer = b;
 	if (address >= VGA_PALETTE_BASE && address < VGA_PALETTE_END) {
 		uint32_t palette_offset = address - VGA_PALETTE_BASE;
+		palette_offset ^= 0b11;
 		*buffer = ((uint8_t *) vga->palette)[palette_offset];
-		return 0;
+		return 1;
 	}
 	if (address < VGA_MMIO_BASE || address >= VGA_MMIO_END) {
 		return 0;
@@ -65,12 +66,12 @@ int vga_write_handler(void * priv, bus_t * bus, uint32_t address, void * b, size
 	uint8_t * buffer = b;
 	if (address >= VGA_PALETTE_BASE && address < VGA_PALETTE_END) {
 		if ((address % 4) == 0) {
-			return 0;
+			return 1;
 		}
 		uint32_t palette_offset = address - VGA_PALETTE_BASE;
 		palette_offset = palette_offset ^ 0b11;
 		((uint8_t *) vga->palette)[palette_offset] = *buffer;
-		return 0;
+		return 1;
 	}
 
 	if (address < VGA_MMIO_BASE || address >= VGA_MMIO_END) {

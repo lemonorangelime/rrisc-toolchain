@@ -62,4 +62,5 @@ int parse_args(int argc, char * argv[]) {
         }
 
         args_unsetup();
+	return 0;
 }

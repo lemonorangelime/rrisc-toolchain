@@ -13,11 +13,13 @@ org 0x1600
 #ifdef VERY_SMALL
 #define NO_SUPPORT_UNICODE 1
 #define NO_VGA_PALETTE 1
+#define NO_ADVANCED_VGA 1
 #define NO_BOOT_TEXT 1
 #endif
 
 #ifdef SAFE
 #define NO_VGA_PALETTE 1
+#define NO_ADVANCED_VGA 1
 #define NO_MEMORY_PROBING 1
 #endif
 
@@ -36,6 +38,10 @@ UART_STAT_RX_READY equ 0b00000001
 UART_STAT_TX_READY equ 0b00000010
 
 VGA_PALETTE_BASE equ 0x1a70
+VGA_REG_CTRL_BASE equ 0x1a60
+VGA_REG_CTRL_RESET equ 0x000000ff
+VGA_REG_CTRL_ADVANCED_MODE equ 0xc0000000
+VGA_REG_CTRL_COMPAT_MODE equ 0x80000000
 
 ; use hlvi operations for these... or in the future a pool?? exciting!!!
 RRISC_VERSION_ADDR equ 0x0000ffff
@@ -117,10 +123,21 @@ bios_entry:
 	mov r0, STACK_TOP
 	mov sp, r0
 
+#ifndef NO_ADVANCED_VGA
+	mov r0, [r12 + VGA_REG_CTRL_BASE] ; test if present and in advanced graphics mode
+	shr r0, 24
+	and r0, 1
+	beq r0, r12, bios_entry.vga_compat
+;	mov r0, VGA_REG_CTRL_COMPAT_MODE
+;	mov r1, VGA_REG_CTRL_RESET
+	mov [r12 + VGA_REG_CTRL_BASE], r0
+	mov [r12 + VGA_REG_CTRL_BASE], r1
+bios_entry.vga_compat:
+#endif
+
 #ifndef NO_VGA_PALETTE
-	mov r0, VGA_PALETTE_BASE
 	mov r1, BACKGROUND_COLOUR
-	mov [r0], r1
+	mov [r12 + VGA_PALETTE_BASE], r1
 #endif
 
 	xor r8, r8
@@ -372,7 +389,7 @@ probe_memory.exit:
 	
 
 
-fill_screen: ; fill_screen(colour) fill screen
+fill_screen: ; fill_screen(colour[0:3]) fill screen
 #ifndef MULLESS
 	mov r15, 0x11111111
 	and r13, r0, 0xf

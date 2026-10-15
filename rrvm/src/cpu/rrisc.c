@@ -196,7 +196,10 @@ void rrisc_cpu_clock(cpu_t * cpu) {
 
 		case OP_JREG: pc_next = RREGISTER(instruction.dest);
 
-		case OP_HALT: rrisc_cpu->halt = 1; break;
+		case OP_HALT:
+			dump_registers(rrisc_cpu);
+			rrisc_cpu->halt = 1;
+			break;
 
 		default:
 			printf("unimplemented or invalid opcode 0x%.8x\n", ntohl(*(uint32_t*)&instruction));

@@ -1,6 +1,8 @@
 org 0x0000
 
+#ifndef BIOS_FILE
 #define BIOS_FILE "build/bios_raw.bin"
+#endif
 
 _start:
 	mov r0, payload
