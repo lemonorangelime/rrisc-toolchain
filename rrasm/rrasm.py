@@ -1571,7 +1571,7 @@ def assign_macro_from_argument(arg):
 		macroname = arg[:delim];
 		macroval = arg[delim+1:];
 
-	macros[macroname] = macroval;
+	macros[macroname] = {"type": "str", "value": macroval};
 
 def main(args):
 	global pic;

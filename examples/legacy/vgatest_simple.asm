@@ -1,6 +1,10 @@
 FB equ 0x1a80
 FB_END equ 0x4000
 
+#ifndef IMAGE_FILE
+#define IMAGE_FILE "output.raw"
+#endif
+
 _start:
 	mov r0, FB
 	mov r1, FB_END
@@ -14,5 +18,5 @@ _start.loop:
 	hlt
 
 payload:
-	incbin "output.raw"
+	incbin IMAGE_FILE
 payload_raw:
