@@ -128,8 +128,8 @@ bios_entry:
 	shr r0, 24
 	and r0, 1
 	beq r0, r12, bios_entry.vga_compat
-;	mov r0, VGA_REG_CTRL_COMPAT_MODE
-;	mov r1, VGA_REG_CTRL_RESET
+	mov r0, VGA_REG_CTRL_COMPAT_MODE
+	mov r1, VGA_REG_CTRL_RESET
 	mov [r12 + VGA_REG_CTRL_BASE], r0
 	mov [r12 + VGA_REG_CTRL_BASE], r1
 bios_entry.vga_compat:
