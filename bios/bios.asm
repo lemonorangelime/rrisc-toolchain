@@ -15,11 +15,17 @@ org 0x1600
 #define NO_VGA_PALETTE 1
 #define NO_ADVANCED_VGA 1
 #define NO_BOOT_TEXT 1
+#define NO_UART_STATUS 1
 #endif
 
 #ifdef SAFE
 #define NO_VGA_PALETTE 1
 #define NO_ADVANCED_VGA 1
+#define NO_MEMORY_PROBING 1
+#endif
+
+#ifdef FAST
+#define NO_UART_STATUS 1
 #define NO_MEMORY_PROBING 1
 #endif
 
@@ -219,7 +225,7 @@ bios_entry.poll_uart:
 bios_entry.load_program:
 	mov r5, [r1]
 
-#ifndef NO_BOOT_TEXT
+#ifndef NO_UART_STATUS
 	push r0
 	push r1
 	push r2

@@ -13,6 +13,7 @@ rrinterp/
 *.roadrun
 *.gtkw
 *.o
+*.astdump
 uart-fifo
 
 # deprecated, see rrisc BIOS
