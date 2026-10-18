@@ -209,7 +209,7 @@ class RRISC32():
 	def call_virtual_instruction(self, offset, a):
 		if (a["type"] == "reg"):
 			rroff = offset >> self.rrasm.ADDRESS_SHIFT;
-			if (self.rrasm.hlvi and "callreg" not in self.encodings):
+			if (self.rrasm.hlvi and "jreg" not in self.encodings):
 				return [ # hlvi for call Rd (jreg-less)
 					{"type": "instruction", "name": "call", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
 					{"type": "instruction", "name": "jrel", "operands": [self.rrasm.decode_operand(str(rroff + 4))]},
@@ -217,7 +217,7 @@ class RRISC32():
 					{"type": "instruction", "name": "ret", "operands": []}
 				];
 
-			if (self.rrasm.hlvi and "jreg" not in self.encodings):
+			if (self.rrasm.hlvi and "callreg" not in self.encodings):
 				return [ # hlvi for call Rd (callreg-less)
 					{"type": "instruction", "name": "call", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
 					{"type": "instruction", "name": "jrel", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
