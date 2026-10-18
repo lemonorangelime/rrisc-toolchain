@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import struct;
+import random;
 
 class RRISC32():
 	def __init__(self, rrasm):
@@ -125,11 +126,12 @@ class RRISC32():
 			"mulh": {"args": [2, 3], "resolve": lambda a, b, c=False: self.mul_virtual_resolver(a, b, c, False, "mulh")},
 
 			"jmp": {"args": [1], "resolve": self.jmp_virtual_instruction},
+			"call": {"args": [1], "wantsoffset": True, "resolve": self.call_virtual_instruction},
 			"out": {"args": [2], "resolve": self.out_virtual_instruction},
 			"in": {"args": [2], "resolve": self.in_virtual_instruction},
 			"bgt": {"args": [3], "resolve": self.bgt_virtual_instruction},
 		};
-	
+
 		self.rrasm = rrasm;
 
 
@@ -168,11 +170,23 @@ class RRISC32():
 		if (a["type"] == "ctrl" and b["type"] == "reg"):
 			return {"type": "instruction", "name": "stc"};
 
+		# sp
 		if ((a["type"] == "vreg" and a["value"] == "sp") and b["type"] == "reg"):
 			return {"type": "instruction", "name": "sts", "operands": [b]};
 
 		if (a["type"] == "reg" and (b["type"] == "vreg" and b["value"] == "sp")):
 			return {"type": "instruction", "name": "lds", "operands": [a]};
+
+		# pc
+		if ((a["type"] == "vreg" and a["value"] == "pc") and b["type"] == "reg"):
+			return self.jmp_virtual_instruction(b);
+
+		if (a["type"] == "reg" and (b["type"] == "vreg" and b["value"] == "pc") and self.rrasm.hlvi):
+			rroff = offset >> self.rrasm.ADDRESS_SHIFT;
+			return [
+				{"type": "instruction", "name": "call", "operands": [self.rrasm.decode_operand(str(rroff + 1))]},
+				{"type": "instruction", "name": "pop", "operands": [a]}
+			];
 
 		return {"type": "error", "value": self.rrasm.ERR_UNSUPPORTED_ARGS};
 
@@ -190,6 +204,29 @@ class RRISC32():
 			return {"type": "instruction", "name": "jrel"};
 
 		return {"type": "instruction", "name": "jmpabs"};
+
+	# `call` instruction virtual resolver, resolve to standard call or hlvi sequence
+	def call_virtual_instruction(self, offset, a):
+		if (a["type"] == "reg"):
+			rroff = offset >> self.rrasm.ADDRESS_SHIFT;
+			if (self.rrasm.hlvi and "callreg" not in self.encodings):
+				return [ # hlvi for call Rd (jreg-less)
+					{"type": "instruction", "name": "call", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
+					{"type": "instruction", "name": "jrel", "operands": [self.rrasm.decode_operand(str(rroff + 4))]},
+					{"type": "instruction", "name": "push", "operands": [a]},
+					{"type": "instruction", "name": "ret", "operands": []}
+				];
+
+			if (self.rrasm.hlvi and "jreg" not in self.encodings):
+				return [ # hlvi for call Rd (callreg-less)
+					{"type": "instruction", "name": "call", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
+					{"type": "instruction", "name": "jrel", "operands": [self.rrasm.decode_operand(str(rroff + 2))]},
+					{"type": "instruction", "name": "jreg", "operands": [a]},
+				];
+
+			return {"type": "instruction", "name": "callreg"};
+
+		return {"type": "instruction", "name": "call"};
 
 	# `out` instruction virtual resolver, resolve to stio always
 	def out_virtual_instruction(self, a, b):
@@ -219,6 +256,10 @@ class RRISC32():
 	# 'bgt' instruction virtual resolver, resolve to operand swapped blt
 	def bgt_virtual_instruction(self, a, b, c):
 		return {"type": "instruction", "name": "blt", "operands": [b, a, c]};
+
+	# generate random string `l` characters long
+	def randstr(self, l):
+		return "".join(chr(random.randint(ord('A'), ord('Z'))) for i in range(0, l));
 
 	# map memory reference to simplified rrisc format memory reference
 	def map_mem_to_rrisc_offset(self, operand):

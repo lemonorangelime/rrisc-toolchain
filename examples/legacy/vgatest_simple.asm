@@ -14,8 +14,8 @@ _start.loop:
 	mov [r0], r3
 	add r0, 1
 	add r2, 1
-	blt r1, r0, _start.loop
-	hlt
+	bneq r1, r0, _start.loop
+	ret
 
 payload:
 	incbin IMAGE_FILE

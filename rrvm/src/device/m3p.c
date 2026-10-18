@@ -199,7 +199,7 @@ void m3p_modeset(m3p_device_t * m3p) {
 	SDL_DestroyRenderer(m3p->renderer);
 	SDL_DestroyWindow(m3p->window);
 
-	char * title = (m3p->mode == M3P_STATUS_WRITE_COMPAT_MODE) ? "rrvm vga display" : "rrvm m3p display";
+	char * title = (m3p->mode == M3P_MODE_RRISC32_COMPAT) ? "rrvm vga display" : "rrvm m3p display";
 	m3p->window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, m3p->width, m3p->height, SDL_WINDOW_SHOWN);
 	m3p->renderer = SDL_CreateRenderer(m3p->window, -1, SDL_RENDERER_SOFTWARE);
 	m3p->surface = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, m3p->width, m3p->height, 32, SDL_PIXELFORMAT_ARGB8888);

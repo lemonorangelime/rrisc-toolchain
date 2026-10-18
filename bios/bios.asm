@@ -1,5 +1,9 @@
 org 0x1600
 
+; versioning
+#define BIOS_VERSION 0x00010001
+#define BIOS_VERSION_STR "1.1"
+
 ; compilation options:
 ;
 ; NO_SUPPORT_UNICODE - remove unicode characters from font
@@ -61,19 +65,40 @@ EXECUTABLE_ROADRUN equ 0x01
 ; bios_func_table[bios_func_num](...)
 ; this is at 0x1600, bios functions use the standard ABI
 bios_func_table:
-	dd draw_glyph
-	dd locate_glyph
-	dd find_pixel
-	dd fill_screen
-	dd print_str
-	dd print_str32
-	dd bios_entry
-	dd print_number
+	dd draw_glyph		; function 0
+	dd locate_glyph		; function 1
+	dd find_pixel		; function 2
+	dd fill_screen		; function 3
+	dd print_str		; function 4
+	dd print_str32		; function 5
+	dd bios_entry		; function 6
+	dd print_number		; function 7
+	dd print_strtab_32	; function 8
+	dd print_strtab_64	; function 9
+
+align 0x40
+
+; bios_info_table
+; this is at 0x1640, it contains information about the BIOS itself
+bios_info_table:
+	dd BIOS_VERSION
+rn_cnt: dd 0x00000000 ; "run count", incremented on program load
+#ifndef NO_BOOT_TEXT
+	dd bios_str_identity_message
+	dd bios_str_copyright_message
+	dd bios_str_comptime_message
+	dd bios_str_assembler_message
+#else
+	dd 0x00000000
+	dd 0x00000000
+	dd 0x00000000
+	dd 0x00000000
+#endif
 
 #ifndef NO_BOOT_TEXT
 ; the naivity of our UTF-8 decoder doesn't allow us to encode \u2122 (™), so we use ߿ instead,
 ; in the future we should/need/will/must fix this
-bios_str_boot_message: db "RoadRisc-32߿ PC BIOS   V 1.0   2026/6/17", 0x00
+bios_str_identity_message: db "RoadRisc-32߿ PC BIOS   V ", BIOS_VERSION_STR, "   2026/6/17", 0x00
 align 4
 bios_str_copyright_message: db "Copyright (C) 2026  Lemon.", 0x00
 align 4
@@ -109,8 +134,8 @@ bios_str_fonttest2_gr: db "αβγδεζθηικλμvξoπρστυφχψω", 0x00
 align 4
 
 bios_message_table:
-	; scanline, ptr16 - these string tables save loads of memory & programmer time, we should generalise this structure and make a bios call for printing them
-	dw 0, bios_str_boot_message
+	; scanline, ptr16
+	dw 0, bios_str_identity_message
 	dw 8, bios_str_copyright_message
 	dw 80, bios_str_uart_message
 	dw 152, bios_str_fonttest
@@ -199,16 +224,10 @@ bios_entry.vga_compat:
 	call print_str
 bios_entry.realcpu:
 
-	mov r6, bios_message_table
-	mov r5, bios_message_table_end
-bios_entry.print_message:
-	xor r0, r0
-	mov r2, [r6]
-	shr r1, r2, 16
-	and r2, 0xffff
-	call print_str
-	add r6, 1
-	blt r5, r6, bios_entry.print_message
+	mov r0, bios_message_table
+	mov r1, bios_message_table_end
+	sub r1, r0
+	call print_strtab_32
 #endif
 
 	mov r0, UART_STAT_ADDR
@@ -229,6 +248,11 @@ bios_entry.load_program:
 	push r0
 	push r1
 	push r2
+	mov r1, rn_cnt ; increment "run count"
+	mov r0, [r1]
+	add r0, 1
+	mov [r1], r0
+
 	xor r0, r0
 	mov r1, 88
 	mov r2, bios_str_recv
@@ -344,7 +368,7 @@ bios_entry.load_program.enter.roadrun.relocate_forward:
 
 
 update_uart_status: ; !!! DOES NOT FOLLOW ABI !!!
-#ifndef NO_BOOT_TEXT
+#ifndef NO_UART_STATUS
 	push r0
 	push r1
 	push r2
@@ -392,7 +416,7 @@ probe_memory.loop:
 	jmp probe_memory.loop
 probe_memory.exit:
 	ret
-	
+
 
 
 fill_screen: ; fill_screen(colour[0:3]) fill screen
@@ -560,6 +584,60 @@ print_str32.loop:
 	ret
 
 
+
+print_strtab_32: ; print_strtab_32(strtab32, entries)
+	push r1
+	push r2
+	push r3
+	push r4
+	push r5
+
+	mov r3, r0
+	mov r4, r1
+	xor r5, r5
+print_strtab_32.printloop:
+	mov r1, [r3] ; 0xXXXPPPP
+	and r2, r1, 0xffff
+	shr r1, 16
+	xor r0, r0
+	call print_str
+	sub r4, 1
+	add r3, 1
+	bneq r5, r4, print_strtab_32.printloop
+
+	pop r5
+	pop r4
+	pop r3
+	pop r2
+	pop r1
+	ret
+
+print_strtab_64: ; print_strtab_32(strtab64, entries)
+	push r1
+	push r2
+	push r3
+	push r4
+	push r5
+
+	mov r3, r0
+	mov r4, r1
+	xor r5, r5
+print_strtab_64.printloop:
+	mov r1, [r3] ; 0xXXXYYYY
+	mov r2, [r3 + 1] ; 0xPPPPPPP
+	shr r0, r1, 16
+	and r1, 0xffff
+	call print_str
+	sub r4, 1
+	add r3, 2
+	bneq r5, r4, print_strtab_64.printloop
+
+	pop r5
+	pop r4
+	pop r3
+	pop r2
+	pop r1
+	ret
 
 find_pixel: ; find_pixel(x, y) - return pixel address in r0
 	mov r15, VGA_WIDTH

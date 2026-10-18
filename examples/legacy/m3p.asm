@@ -60,6 +60,7 @@ _start:
 	xor r8, r8
 	xor r9, r9
 
+	; draw gradient
 	mov r14, 0xff0000
 	xor r11, r11
 	mov r2, VGA_ADVANCED_VRAM_BASE
